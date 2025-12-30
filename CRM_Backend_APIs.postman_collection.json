@@ -1,0 +1,1000 @@
+{
+	"info": {
+		"_postman_id": "crm-backend-apis",
+		"name": "CRM Backend APIs",
+		"description": "Collection of endpoints for CRM Backend Role-Based Access Control testing.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Signup",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Alice Admin\",\n    \"email\": \"alice@example.com\",\n    \"password\": \"securepassword\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/auth/signup",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["auth", "signup"]
+						},
+						"description": "Register a new user. The first user registered becomes Super Admin automatically."
+					},
+					"response": []
+				},
+				{
+					"name": "Login",
+					"event": [],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"alice@example.com\",\n    \"password\": \"securepassword\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/auth/login",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["auth", "login"]
+						},
+						"description": "Login to receive a JWT Bearer token."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Me",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/auth/me",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["auth", "me"]
+						},
+						"description": "Get details of the currently logged-in user."
+					},
+					"response": []
+				},
+				{
+					"name": "Send OTP",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"alice@example.com\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/auth/send-otp",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["auth", "send-otp"]
+						},
+						"description": "Send OTP for password reset."
+					},
+					"response": []
+				},
+				{
+					"name": "Reset Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"alice@example.com\",\n    \"otp\": \"123456\",\n    \"new_password\": \"newsecurepassword\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/auth/reset-password",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["auth", "reset-password"]
+						},
+						"description": "Reset password using OTP."
+					},
+					"response": []
+				},
+				{
+					"name": "Change Password",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"old_password\": \"securepassword\",\n    \"new_password\": \"newpassword123\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/auth/change-password",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["auth", "change-password"]
+						},
+						"description": "Change password while logged in."
+					},
+					"response": []
+				},
+				{
+					"name": "Verify Password",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"password\": \"securepassword\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/auth/verify-password",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["auth", "verify-password"]
+						},
+						"description": "Verify current password (security check)."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "User Management",
+			"item": [
+				{
+					"name": "Get All Users",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/auth/users",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["auth", "users"]
+						},
+						"description": "Get list of all users. (Requires Role: Super Admin, Admin, or HR)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get User Detail",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/auth/users/1",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["auth", "users", "1"]
+						},
+						"description": "Get details of a specific user by ID."
+					},
+					"response": []
+				},
+				{
+					"name": "Update User Role",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"role\": \"HR\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/auth/users/2/role",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["auth", "users", "2", "role"]
+						},
+						"description": "Promote a user to a new role. (Requires Role: Super Admin or Admin)"
+					},
+					"response": []
+				},
+				{
+					"name": "Approve User",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/auth/approve/2",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["auth", "approve", "2"]
+						},
+						"description": "Approve a newly registered user account."
+					},
+					"response": []
+				},
+				{
+					"name": "Login History",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/auth/login-history/1",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["auth", "login-history", "1"]
+						},
+						"description": "View login history for a user."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Dashboards",
+			"item": [
+				{
+					"name": "Super Admin Dashboard",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/crm/superadmin/dashboard",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "crm", "superadmin", "dashboard"]
+						},
+						"description": "Super Admin Dashboard Data."
+					},
+					"response": []
+				},
+				{
+					"name": "Admin Dashboard",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/crm/admin/dashboard",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "crm", "admin", "dashboard"]
+						},
+						"description": "Admin Dashboard Data."
+					},
+					"response": []
+				},
+				{
+					"name": "HR Dashboard",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/crm/hr/dashboard",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "crm", "hr", "dashboard"]
+						},
+						"description": "HR Dashboard Data."
+					},
+					"response": []
+				},
+				{
+					"name": "User Dashboard",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/crm/user/dashboard",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "crm", "user", "dashboard"]
+						},
+						"description": "User Dashboard Data."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Profile",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"New Name\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/crm/user/update-profile",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "crm", "user", "update-profile"]
+						},
+						"description": "Update user profile name."
+					},
+					"response": []
+				},
+				{
+					"name": "KPI Metrics",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/dashboard/kpis?period=all",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "dashboard", "kpis"],
+							"query": [
+								{
+									"key": "period",
+									"value": "all",
+									"description": "today, month, year, all"
+								}
+							]
+						},
+						"description": "Get KPI metrics (Super Admin only)."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Plans & Subscription",
+			"item": [
+				{
+					"name": "Get Plans (Public)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/plans",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "plans"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Plan",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Gold\",\n    \"price\": \"$99/mo\",\n    \"user_limit\": 100,\n    \"description\": \"Premium plan\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/plans",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "plans"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Feature",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"AI Analytics\",\n    \"key\": \"ai_analytics\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/features",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "features"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Add Feature to Plan",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"feature_key\": \"ai_analytics\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/plans/1/features",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "plans", "1", "features"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Organization",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Tech Corp\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/organizations",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "organizations"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Assign Plan to Org",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"plan_name\": \"Gold\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/organizations/1/assign-plan",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "organizations", "1", "assign-plan"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Check Feature Access",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/check-access/analytics",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "check-access", "analytics"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Employee Management",
+			"item": [
+				{
+					"name": "Create Employee",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Bob Employee\",\n    \"email\": \"bob@example.com\",\n    \"role\": \"User\",\n    \"department\": \"Sales\",\n    \"designation\": \"Associate\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/employees",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "employees"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Employees",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/employees",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "employees"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Employee",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"designation\": \"Senior Associate\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/employees/2",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "employees", "2"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Employee",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/employees/2",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "employees", "2"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Website",
+			"item": [
+				{
+					"name": "Home",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": [""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Public Features",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/features",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["features"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Contact Form",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Visitor\",\n    \"email\": \"visitor@example.com\",\n    \"message\": \"I am interested in your CRM.\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/contact",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["contact"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Charts & Graphs",
+			"item": [
+				{
+					"name": "User Roles Chart",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/charts/user-roles",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "charts", "user-roles"]
+						},
+						"description": "Get data for User Roles distribution (Pie Chart)."
+					},
+					"response": []
+				},
+				{
+					"name": "User Status Chart",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/charts/user-status",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "charts", "user-status"]
+						},
+						"description": "Get data for User Status and Approval distribution."
+					},
+					"response": []
+				},
+				{
+					"name": "Login Activity Chart",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/charts/login-activity",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "charts", "login-activity"]
+						},
+						"description": "Get login activity for the last 7 days (Line/Bar Chart)."
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"variable": []
+}

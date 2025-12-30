@@ -1,0 +1,191 @@
+### Signup New User (First user becomes Super Admin)
+POST http://127.0.0.1:5000/auth/signup
+Content-Type: application/json
+
+{
+    "name": "Alice Smith",
+    "email": "alice@example.com",
+    "password": "securepassword"
+}
+
+### Signup Second User (Will be Pending)
+POST http://127.0.0.1:5000/auth/signup
+Content-Type: application/json
+
+{
+    "name": "Bob Jones",
+    "email": "bob@example.com",
+    "password": "securepassword"
+}
+
+### Login (As Admin to get Token)
+POST http://127.0.0.1:5000/auth/login
+Content-Type: application/json
+
+{
+    "email": "alice@example.com",
+    "password": "securepassword"
+}
+
+### Approve User (Requires Admin Token)
+# Replace <TOKEN> below with the token received from the Login request
+PUT http://127.0.0.1:5000/auth/approve/2
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{}
+
+### Submit Contact Form (Landing Page)
+POST http://127.0.0.1:5000/contact
+Content-Type: application/json
+
+{
+    "name": "Potential Customer",
+    "email": "customer@example.com",
+    "message": "Tell me more about the Pro plan."
+}
+
+### ---------------- PASSWORD MANAGEMENT ----------------
+
+### 1. Send OTP (Forgot Password)
+# Check your VS Code terminal output for the printed OTP
+POST http://127.0.0.1:5000/auth/send-otp
+Content-Type: application/json
+
+{
+    "email": "alice@example.com"
+}
+
+### 2. Reset Password (Using OTP)
+# Replace "123456" with the OTP printed in the terminal
+POST http://127.0.0.1:5000/auth/reset-password
+Content-Type: application/json
+
+{
+    "email": "alice@example.com",
+    "otp": "123456",
+    "new_password": "newsecurepassword"
+}
+
+### 3. Verify Password (Check current password)
+# Requires Token (Login first with new password to get token)
+POST http://127.0.0.1:5000/auth/verify-password
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{
+    "password": "newsecurepassword"
+}
+
+### 4. Change Password
+# Requires Token
+POST http://127.0.0.1:5000/auth/change-password
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{
+    "old_password": "newsecurepassword",
+    "new_password": "brandnewpassword"
+}
+
+### ---------------- PLANS & FEATURES (Super Admin Only) ----------------
+
+### 1. Create Feature (e.g., Max Users)
+POST http://127.0.0.1:5000/api/features
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{
+    "name": "10 Users Limit",
+    "key": "max_users_10"
+}
+
+### 2. Create Another Feature
+POST http://127.0.0.1:5000/api/features
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{
+    "name": "2GB Storage",
+    "key": "storage_2gb"
+}
+
+### 3. Create Plan (Free)
+POST http://127.0.0.1:5000/api/plans
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{
+    "name": "Free Plan",
+    "price": "$0/mo",
+    "description": "Basic plan for small teams"
+}
+
+### 4. Link Feature to Plan
+POST http://127.0.0.1:5000/api/plans/1/features
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{
+    "feature_key": "max_users_10"
+}
+
+### 5. Create Organization (Super Admin)
+POST http://127.0.0.1:5000/api/organizations
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{
+    "name": "Tech Corp"
+}
+
+### 6. Get All Plans (Verify Seeding of Basic, Pro-Executive, Executive)
+# This should now return the new plans automatically. Executive will have user_limit: null (Unlimited)
+GET http://127.0.0.1:5000/api/plans
+
+### 7. Create Analytics Feature (Fix for 401 Error)
+# Replace <TOKEN> with the token from the Login request
+POST http://127.0.0.1:5000/api/features
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{
+    "name": "Analytics",
+    "key": "analytics"
+}
+
+### 8. Get Login History (Admin Only)
+# Replace <TOKEN> with Admin Token. Replace '2' with target User ID.
+GET http://127.0.0.1:5000/auth/login-history/2
+Authorization: Bearer <TOKEN>
+
+### ---------------- NEW PLANS & FEATURES TESTS ----------------
+
+### 9. Create "Pro-Executive" Plan (If not seeded)
+POST http://127.0.0.1:5000/api/plans
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{
+    "name": "Pro-Executive",
+    "price": "$50/mo",
+    "user_limit": 20,
+    "description": "Mid-tier plan for growing businesses"
+}
+
+### 10. Create "Executive" Plan (If not seeded)
+POST http://127.0.0.1:5000/api/plans
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{
+    "name": "Executive",
+    "price": "$100/mo",
+    "user_limit": null,
+    "description": "Top-tier plan with all features"
+}
+
+### 11. Check Feature Access for 'analytics'
+GET http://127.0.0.1:5000/api/check-access/analytics
+Authorization: Bearer <TOKEN>
+Authorization: Bearer <TOKEN>
