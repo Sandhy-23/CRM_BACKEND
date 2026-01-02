@@ -49,6 +49,38 @@ def migrate_db():
                 except Exception as e:
                     print(f"users.{col_name} check: {e}")
             
+            # 5. Fix Tasks Table
+            try:
+                connection.execute(text("ALTER TABLE tasks ADD COLUMN description TEXT"))
+                print("Added 'description' to tasks table.")
+            except Exception as e:
+                print(f"tasks.description check: {e}")
+
+            # 6. Fix Tasks Table (Quick Actions)
+            task_qa_cols = [("created_by", "INTEGER"), ("created_at", "DATETIME")]
+            for col_name, col_type in task_qa_cols:
+                try:
+                    connection.execute(text(f"ALTER TABLE tasks ADD COLUMN {col_name} {col_type}"))
+                    print(f"Added '{col_name}' to tasks table.")
+                except Exception as e:
+                    print(f"tasks.{col_name} check: {e}")
+
+            # 7. Fix Leads Table (Assignment)
+            try:
+                connection.execute(text("ALTER TABLE leads ADD COLUMN assigned_to INTEGER"))
+                print("Added 'assigned_to' to leads table.")
+            except Exception as e:
+                print(f"leads.assigned_to check: {e}")
+
+            # 8. Fix Activity Logs (Entity Tracking)
+            log_cols = [("entity_type", "VARCHAR(50)"), ("entity_id", "INTEGER")]
+            for col_name, col_type in log_cols:
+                try:
+                    connection.execute(text(f"ALTER TABLE activity_logs ADD COLUMN {col_name} {col_type}"))
+                    print(f"Added '{col_name}' to activity_logs table.")
+                except Exception as e:
+                    print(f"activity_logs.{col_name} check: {e}")
+
             connection.commit()
             print("Migration complete. You can now restart the server.")
 

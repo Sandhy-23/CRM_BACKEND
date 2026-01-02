@@ -2,11 +2,12 @@ from flask import Blueprint, jsonify, request
 from routes.auth_routes import token_required
 from models.user import User, LoginHistory
 from models.organization import Organization
-from models.crm import Lead, Deal, Activity
+from models.crm import Lead, Deal, Activity, Task
 from extensions import db
 from sqlalchemy import func
 from datetime import datetime
 from werkzeug.security import generate_password_hash
+from models.employee_models import Attendance, ActivityLog
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -353,3 +354,66 @@ def delete_employee(current_user, user_id):
     db.session.delete(user)
     db.session.commit()
     return jsonify({"message": "Employee deleted successfully"}), 200
+
+# --- ROLE SPECIFIC ENDPOINTS ---
+
+@dashboard_bp.route('/team', methods=['GET'])
+@token_required
+def get_team_data(current_user):
+    """
+    Get Team Data.
+    Access: HR, Manager
+    """
+    if current_user.role not in ['HR', 'Manager', 'Admin', 'Super Admin']:
+        return jsonify({'message': 'Permission denied'}), 403
+
+    # Fetch users (excluding self)
+    team_members = User.query.filter(User.id != current_user.id).all()
+    
+    data = [{
+        'id': member.id,
+        'name': member.name,
+        'email': member.email,
+        'role': member.role,
+        'department': getattr(member, 'department', 'N/A')
+    } for member in team_members]
+
+    return jsonify({"message": "Team data fetched successfully", "data": data}), 200
+
+@dashboard_bp.route('/attendance', methods=['GET'])
+@token_required
+def get_attendance(current_user):
+    if current_user.role not in ['HR', 'Manager', 'Admin', 'Super Admin']:
+        return jsonify({'message': 'Permission denied'}), 403
+    
+    records = Attendance.query.order_by(Attendance.date.desc()).all()
+    data = [{
+        'id': r.id,
+        'user_id': r.user_id,
+        'date': str(r.date),
+        'status': r.status,
+        'check_in': str(r.check_in) if r.check_in else None
+    } for r in records]
+    return jsonify({"attendance": data}), 200
+
+@dashboard_bp.route('/activity-logs', methods=['GET'])
+@token_required
+def get_activity_logs(current_user):
+    if current_user.role not in ['HR', 'Manager', 'Admin', 'Super Admin']:
+        return jsonify({'message': 'Permission denied'}), 403
+        
+    logs = ActivityLog.query.order_by(ActivityLog.timestamp.desc()).limit(50).all()
+    data = [{
+        'id': l.id,
+        'user_id': l.user_id,
+        'action': l.action,
+        'timestamp': str(l.timestamp)
+    } for l in logs]
+    return jsonify({"activity_logs": data}), 200
+
+@dashboard_bp.route('/tasks', methods=['GET'])
+@token_required
+def get_my_tasks(current_user):
+    tasks = Task.query.filter_by(assigned_to=current_user.id).all()
+    data = [{'id': t.id, 'title': t.title, 'status': t.status, 'due_date': str(t.due_date) if t.due_date else None} for t in tasks]
+    return jsonify({"tasks": data}), 200

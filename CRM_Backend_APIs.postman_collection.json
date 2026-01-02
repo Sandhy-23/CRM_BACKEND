@@ -994,6 +994,326 @@
 					"response": []
 				}
 			]
+		},
+		{
+			"name": "Role Specific Features",
+			"item": [
+				{
+					"name": "Get Team Data",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/team",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "team"]
+						},
+						"description": "Get team data (HR/Manager)."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Attendance",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/attendance",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "attendance"]
+						},
+						"description": "Get attendance records (HR/Manager)."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Activity Logs",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/activity-logs",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "activity-logs"]
+						},
+						"description": "Get activity logs (HR/Manager)."
+					},
+					"response": []
+				},
+				{
+					"name": "Get My Tasks",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/tasks",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "tasks"]
+						},
+						"description": "Get own tasks (Employee)."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Quick Actions",
+			"item": [
+				{
+					"name": "Quick Add Task",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"Urgent Follow-up\",\n    \"description\": \"Call client X immediately\",\n    \"assigned_to\": 2\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/quick-actions/task",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "quick-actions", "task"]
+						},
+						"description": "Admin/Super Admin only."
+					},
+					"response": []
+				},
+				{
+					"name": "Log Activity",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"action\": \"Called Client\",\n    \"entity_type\": \"Lead\",\n    \"entity_id\": 1\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/quick-actions/activity",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "quick-actions", "activity"]
+						},
+						"description": "Available to All Roles."
+					},
+					"response": []
+				},
+				{
+					"name": "Complete Own Task",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/quick-actions/task/1/complete",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "quick-actions", "task", "1", "complete"]
+						},
+						"description": "Employee can complete their own task."
+					},
+					"response": []
+				},
+				{
+					"name": "Assign Lead",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"assigned_to\": 2\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/quick-actions/lead/1/assign",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "quick-actions", "lead", "1", "assign"]
+						},
+						"description": "Admin/Super Admin only."
+					},
+					"response": []
+				},
+				{
+					"name": "Add Note",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"note\": \"Discussed project requirements.\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/quick-actions/note",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "quick-actions", "note"]
+						},
+						"description": "Admin, HR, Manager."
+					},
+					"response": []
+				},
+				{
+					"name": "Change User Status",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": \"Inactive\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/quick-actions/user/2/status",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "quick-actions", "user", "2", "status"]
+						},
+						"description": "Admin, HR, Manager."
+					},
+					"response": []
+				}
+			]
 		}
 	],
 	"variable": []
