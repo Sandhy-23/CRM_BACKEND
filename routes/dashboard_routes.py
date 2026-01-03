@@ -2,12 +2,14 @@ from flask import Blueprint, jsonify, request
 from routes.auth_routes import token_required
 from models.user import User, LoginHistory
 from models.organization import Organization
-from models.crm import Lead, Deal, Activity, Task
+from models.crm import Lead, Deal, Activity
+from models.task import Task
 from extensions import db
 from sqlalchemy import func
-from datetime import datetime
+from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash
-from models.employee_models import Attendance, ActivityLog
+from models.attendance import Attendance
+from models.activity_log import ActivityLog
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -417,3 +419,37 @@ def get_my_tasks(current_user):
     tasks = Task.query.filter_by(assigned_to=current_user.id).all()
     data = [{'id': t.id, 'title': t.title, 'status': t.status, 'due_date': str(t.due_date) if t.due_date else None} for t in tasks]
     return jsonify({"tasks": data}), 200
+
+@dashboard_bp.route('/dashboard/login-activity', methods=['GET'])
+@token_required
+def dashboard_login_activity(current_user):
+    if current_user.role not in ['Super Admin', 'Admin']:
+        return jsonify({"error": "Unauthorized"}), 403
+        
+    # Last 7 days login counts
+    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    logs = db.session.query(
+        func.date(LoginHistory.login_time).label('date'), 
+        func.count(LoginHistory.id)
+    ).filter(
+        LoginHistory.login_time >= seven_days_ago
+    ).group_by(func.date(LoginHistory.login_time)).all()
+    
+    data = {str(day): count for day, count in logs}
+    return jsonify(data)
+
+@dashboard_bp.route('/dashboard/task-stats', methods=['GET'])
+@token_required
+def dashboard_task_stats(current_user):
+    query = db.session.query(Task.status, func.count(Task.id)).group_by(Task.status)
+    
+    # If not admin, only see own tasks
+    if current_user.role not in ['Super Admin', 'Admin', 'HR']:
+        query = query.filter(Task.assigned_to == current_user.id)
+    elif current_user.role in ['Admin', 'HR']:
+        # Filter by organization if applicable
+        if current_user.organization_id:
+            query = query.filter(Task.organization_id == current_user.organization_id)
+        
+    stats = query.all()
+    return jsonify({status: count for status, count in stats})

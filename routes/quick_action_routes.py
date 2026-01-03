@@ -1,7 +1,8 @@
 from flask import Blueprint, request, jsonify
 from routes.auth_routes import token_required
-from models.crm import Task, Lead, Activity
-from models.employee_models import ActivityLog
+from models.crm import Lead, Activity
+from models.task import Task
+from models.activity_log import ActivityLog
 from models.user import User
 from extensions import db
 from datetime import datetime

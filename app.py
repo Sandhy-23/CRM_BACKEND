@@ -5,7 +5,6 @@ from routes import auth_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp
 from routes.chart_routes import chart_bp
 from config import Config
 import models
-import models.employee_models
 
 app = Flask(__name__)
 app.config.from_object(Config)

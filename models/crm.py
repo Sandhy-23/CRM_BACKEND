@@ -37,18 +37,6 @@ class Deal(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     closed_at = db.Column(db.DateTime)
 
-class Task(db.Model):
-    __tablename__ = "tasks"
-    id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(200), nullable=False)
-    description = db.Column(db.Text, nullable=True)
-    due_date = db.Column(db.DateTime)
-    status = db.Column(db.String(20), default="Pending")
-    assigned_to = db.Column(db.Integer, db.ForeignKey('users.id'))
-    created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
-
 class Ticket(db.Model):
     __tablename__ = "tickets"
     id = db.Column(db.Integer, primary_key=True)

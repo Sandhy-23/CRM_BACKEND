@@ -534,6 +534,58 @@
 						"description": "Get KPI metrics (Super Admin only)."
 					},
 					"response": []
+				},
+				{
+					"name": "Login Activity Stats",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/dashboard/login-activity",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "dashboard", "login-activity"]
+						},
+						"description": "Get login activity stats for dashboard."
+					},
+					"response": []
+				},
+				{
+					"name": "Task Stats",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/dashboard/task-stats",
+							"protocol": "http",
+							"host": ["127", "0", "0", "1"],
+							"port": "5000",
+							"path": ["api", "dashboard", "task-stats"]
+						},
+						"description": "Get task statistics for dashboard."
+					},
+					"response": []
 				}
 			]
 		},
