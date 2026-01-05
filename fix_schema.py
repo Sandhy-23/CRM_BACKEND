@@ -81,6 +81,21 @@ def migrate_db():
                 except Exception as e:
                     print(f"activity_logs.{col_name} check: {e}")
 
+            # 9. Fix Contacts Table (New Module)
+            contact_cols = [
+                ("company", "VARCHAR(100)"),
+                ("status", "VARCHAR(20) DEFAULT 'Lead'"),
+                ("updated_at", "DATETIME"),
+                ("assigned_to", "INTEGER"),
+                ("created_by", "INTEGER")
+            ]
+            for col_name, col_type in contact_cols:
+                try:
+                    connection.execute(text(f"ALTER TABLE contacts ADD COLUMN {col_name} {col_type}"))
+                    print(f"Added '{col_name}' to contacts table.")
+                except Exception as e:
+                    print(f"contacts.{col_name} check: {e}")
+
             connection.commit()
             print("Migration complete. You can now restart the server.")
 

@@ -1,379 +1,222 @@
-from flask import Blueprint, request, jsonify, current_app
-from werkzeug.security import generate_password_hash, check_password_hash
-from functools import wraps
-from extensions import db
-from models.user import User, LoginHistory
-from models.organization import Organization
-import random
 import jwt
-import datetime
+from functools import wraps
+from flask import request, jsonify, Blueprint, current_app
+from werkzeug.security import generate_password_hash, check_password_hash
+from models import User, ActivityLog
+from models.crm import Lead # Assuming Lead is in crm
+from models.organization import Organization
+from extensions import db
+from datetime import datetime, timedelta
 
-auth_bp = Blueprint("auth", __name__)
+auth_bp = Blueprint('auth', __name__)
 
-# Decorator to verify JWT token
+# --- Helpers ---
+
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         token = None
         if 'Authorization' in request.headers:
-            auth_header = request.headers['Authorization']
-            if auth_header.startswith("Bearer "):
-                parts = auth_header.split() # Splits on any whitespace
-                if len(parts) > 1:
-                    token = parts[1]
-                    # Handle double 'Bearer' (common Postman mistake)
-                    if token.lower() == 'bearer' and len(parts) > 2:
-                        token = parts[2]
-                    # Strip quotes (common copy-paste mistake)
-                    token = token.strip('"').strip("'")
-            else:
-                # Fallback: Allow token even if 'Bearer' prefix is missing
-                token = auth_header.strip().strip('"').strip("'")
-        
+            try:
+                token = request.headers['Authorization'].split(" ")[1]
+            except IndexError:
+                return jsonify({'message': 'Bearer token malformed'}), 401
         if not token:
-            return jsonify({'message': 'Token is missing!'}), 401
+            return jsonify({'message': 'Token is missing'}), 401
         try:
             data = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
             current_user = User.query.get(data['user_id'])
             if not current_user:
-                return jsonify({'message': 'User not found!'}), 401
-        except jwt.ExpiredSignatureError:
-            return jsonify({'message': 'Token has expired!'}), 401
-        except jwt.InvalidTokenError as e:
-            return jsonify({'message': 'Token is invalid!', 'error': str(e)}), 401
+                return jsonify({'message': 'User not found'}), 401
         except Exception as e:
             return jsonify({'message': 'Token is invalid!', 'error': str(e)}), 401
         return f(current_user, *args, **kwargs)
     return decorated
 
-# ---------------- SIGNUP ----------------
-@auth_bp.route("/signup", methods=["POST"])
+def log_activity(user_id, action, entity_type=None, entity_id=None):
+    """Helper to log activity to the database."""
+    try:
+        log = ActivityLog(
+            user_id=user_id,
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            timestamp=datetime.utcnow()
+        )
+        db.session.add(log)
+        db.session.commit()
+    except Exception as e:
+        print(f"Error logging activity: {e}")
+        db.session.rollback()
+
+def user_to_dict(user):
+    """Safely convert a User object to a dictionary."""
+    if not user:
+        return None
+    return {
+        'id': user.id,
+        'name': user.name,
+        'email': user.email,
+        'role': user.role,
+        'status': user.status,
+        'organization_id': user.organization_id,
+        'department': user.department,
+        'designation': user.designation,
+        'created_at': user.created_at.isoformat() if user.created_at else None
+    }
+
+# --- Signup & Login ---
+
+@auth_bp.route('/signup', methods=['POST'])
 def signup():
     data = request.get_json()
-    if not data:
-        return jsonify({"message": "Invalid JSON or Content-Type not set to application/json"}), 400
+    if not data or not data.get('email') or not data.get('password') or not data.get('name'):
+        return jsonify({'message': 'Name, email, and password are required'}), 400
 
-    name = data.get("name")
-    email = data.get("email")
-    password = data.get("password")
+    # Enforce Super Admin creation only for the first user
+    # Check if users table is empty (First User Logic)
+    user_count = User.query.count()
+    if user_count > 0:
+        return jsonify({'message': 'Public registration is disabled. Users must be created by an administrator.'}), 403
 
-    if User.query.filter_by(email=email).first():
-        return jsonify({"message": "User already exists"}), 400
-
-    # Logic: First user is Super Admin and Approved. Others are regular users and must be approved.
-    if User.query.count() == 0:
-        role = "Super Admin"
-        is_approved = True
-        # Create default organization for Super Admin
-        default_org = Organization.query.filter_by(id=1).first()
-        if not default_org:
-            default_org = Organization(name="MyCompany")
-            db.session.add(default_org)
-            db.session.commit()
-        org_id = default_org.id
-    else:
-        # New users are assigned the 'User' role.
-        # Auto-approve is set to True to allow immediate login testing as per requirements.
-        role = "User"
-        is_approved = True
-        org_id = 1 # Default to the first organization for public signups.
-
-    user = User(
-        name=name,
-        email=email,
-        password=generate_password_hash(password),
-        role=role,
-        is_approved=is_approved,
-        organization_id=org_id
-    )
-    db.session.add(user)
-    db.session.commit()
+    # First user becomes Super Admin in a new organization
+    hashed_password = generate_password_hash(data['password'], method='pbkdf2:sha256')
     
-    if role == "Super Admin":
-        return jsonify({"message": "Signup success. You are the Super Admin and can now login."}), 201
-    else:
-        return jsonify({"message": "Signup success. You can now login as a User."}), 201
+    # Create a default organization for the Super Admin
+    new_org = Organization(name=f"{data.get('name')}'s Company")
+    db.session.add(new_org)
+    db.session.flush()  # Flush to get the new_org.id
 
+    new_user = User(
+        name=data.get('name'),
+        email=data.get('email'),
+        password=hashed_password,
+        role='Super Admin',
+        status='Active',
+        organization_id=new_org.id
+    )
+    db.session.add(new_user)
+    db.session.commit()
 
-# ---------------- LOGIN ----------------
-@auth_bp.route("/login", methods=["POST"])
+    return jsonify({'message': 'Super Admin created successfully', 'role': 'Super Admin'}), 201
+
+@auth_bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
-    if not data:
-        return jsonify({"message": "Invalid JSON or Content-Type not set to application/json"}), 400
+    if not data or not data.get('email') or not data.get('password'):
+        return jsonify({'message': 'Email and password are required'}), 401
 
-    email = data.get("email")
-    password = data.get("password")
-    ip_address = request.remote_addr
+    user = User.query.filter_by(email=data.get('email')).first()
 
-    user = User.query.filter(User.email.ilike(email)).first()
-
-    if not user or not check_password_hash(user.password, password):
-        # Log failed attempt
-        if user:
-            log = LoginHistory(user_id=user.id, ip_address=ip_address, status="Failed")
-            db.session.add(log)
-            db.session.commit()
-        return jsonify({"message": "Invalid credentials"}), 401
-
-    # Check Account Status (Active/Inactive)
-    if user.status == 'Inactive':
-        return jsonify({"message": "Account is Inactive. Please contact HR/Admin."}), 403
-
-    # Check Approval (Legacy check, can be synced with Status if needed)
-    if user.role not in ['Super Admin', 'Admin'] and not user.is_approved and user.status == 'Active':
-        return jsonify({"message": "Account pending admin approval"}), 403
-
-    # Log success
-    log = LoginHistory(user_id=user.id, ip_address=ip_address, status="Success")
-    db.session.add(log)
-    db.session.commit()
+    if not user or not check_password_hash(user.password, data.get('password')):
+        return jsonify({'message': 'Invalid credentials'}), 401
+    
+    if user.status != 'Active':
+        return jsonify({'message': f'Account is not active. Current status: {user.status}'}), 403
 
     token = jwt.encode({
-        "user_id": user.id,
-        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+        'user_id': user.id,
+        'exp': datetime.utcnow() + timedelta(hours=24)
     }, current_app.config['SECRET_KEY'], algorithm="HS256")
 
-    # Ensure token is a string (PyJWT versions < 2.0 return bytes)
-    if isinstance(token, bytes):
-        token = token.decode("utf-8")
-
-    # Generate Dynamic URL based on Organization and Role
-    # Format: http://<domain>/<org_name>/<role_dashboard>
-    org_name = user.organization.name.lower().replace(" ", "") if user.organization else "crm"
+    log_activity(user.id, "User logged in", "User", user.id)
     
-    # Determine dashboard path based on role
+    # Determine redirect URL based on role
+    redirect_url = "/user/dashboard"
     if user.role == "Super Admin":
-        dashboard_path = "superadmin"
-    elif user.role == "HR":
-        dashboard_path = "hr"
+        redirect_url = "/super-admin/dashboard"
     elif user.role == "Admin":
-        dashboard_path = "admin"
-    else:
-        dashboard_path = "user"
-
-    redirect_url = f"http://127.0.0.1:5000/api/{org_name}/{dashboard_path}/dashboard"
+        redirect_url = "/admin/dashboard"
+    elif user.role == "HR":
+        redirect_url = "/hr/dashboard"
 
     return jsonify({
-        "token": token,
-        "message": f"Hello {user.name}, Login successful",
-        "role": user.role,
-        "redirect_url": redirect_url
-    }), 200
-
-
-# ---------------- DASHBOARD (GET ME) ----------------
-@auth_bp.route("/me", methods=["GET"])
-@token_required
-def get_current_user(current_user):
-    return jsonify({
-        "id": current_user.id,
-        "name": current_user.name,
-        "email": current_user.email,
-        "role": current_user.role,
-        "organization_id": current_user.organization_id
+        'token': token,
+        'user': {
+            'id': user.id,
+            'name': user.name,
+            'email': user.email,
+            'role': user.role
+        },
+        'redirect_url': redirect_url
     })
 
-# ---------------- APPROVE USER (ADMIN ONLY) ----------------
-@auth_bp.route("/approve/<int:user_id>", methods=["PUT"])
+@auth_bp.route('/me', methods=['GET'])
 @token_required
-def approve_user(current_user, user_id):
-    if current_user.role not in ["Admin", "Super Admin"]:
-        return jsonify({"message": "Admin access required"}), 403
-    
-    user_to_approve = User.query.get(user_id)
-    if not user_to_approve:
-        return jsonify({"message": "User not found"}), 404
-        
-    user_to_approve.is_approved = True
-    db.session.commit()
-    
-    return jsonify({"message": f"User {user_to_approve.name} approved"}), 200
+def get_me(current_user):
+    return jsonify(user_to_dict(current_user))
 
-# ---------------- LOGIN HISTORY (ADMIN ONLY) ----------------
-@auth_bp.route("/login-history/<int:user_id>", methods=["GET"])
+# --- User Management Hierarchy ---
+
+@auth_bp.route('/users', methods=['POST'])
 @token_required
-def get_login_history(current_user, user_id):
-    if current_user.role not in ["Admin", "Super Admin"]:
-        return jsonify({"message": "Admin access required"}), 403
-    
-    history = LoginHistory.query.filter_by(user_id=user_id).order_by(LoginHistory.login_time.desc()).all()
-    
-    history_data = []
-    for log in history:
-        history_data.append({
-            "login_time": log.login_time.isoformat(),
-            "ip_address": log.ip_address,
-            "status": log.status
-        })
-        
-    return jsonify(history_data), 200
-
-# ---------------- SEND OTP ----------------
-@auth_bp.route("/send-otp", methods=["POST"])
-def send_otp():
+def create_user(current_user):
     data = request.get_json()
-    if not data:
-        return jsonify({"message": "Invalid JSON"}), 400
+    required_fields = ['name', 'email', 'password', 'role']
+    if not all(field in data for field in required_fields):
+        return jsonify({'message': f'Missing required fields: {", ".join(required_fields)}'}), 400
 
-    email = data.get("email")
+    if User.query.filter_by(email=data['email']).first():
+        return jsonify({'message': 'User with this email already exists'}), 409
 
-    user = User.query.filter(User.email.ilike(email)).first()
-    if not user:
-        return jsonify({"message": "User not found"}), 404
+    requested_role = data.get('role')
+    organization_id = None
+    allowed_roles_to_create = []
 
-    otp = str(random.randint(100000, 999999))
-    user.otp = otp
-    db.session.commit()
+    if current_user.role == 'Super Admin':
+        allowed_roles_to_create = ['Admin']
+        organization_id = data.get('organization_id')
+        if not organization_id:
+            return jsonify({'message': 'organization_id is required to create an Admin'}), 400
+        if not Organization.query.get(organization_id):
+            return jsonify({'message': 'Organization not found'}), 404
+    
+    elif current_user.role == 'Admin':
+        allowed_roles_to_create = ['HR', 'Manager', 'Employee']
+        organization_id = current_user.organization_id
 
-    # Email logic later (for now print)
-    print("OTP:", otp)
+    else:  # HR, Manager, Employee
+        return jsonify({'message': 'Permission denied. You are not authorized to create users.'}), 403
 
-    return jsonify({"message": "OTP sent"}), 200
+    if requested_role not in allowed_roles_to_create:
+        return jsonify({'message': f'As a {current_user.role}, you can only create users with roles: {", ".join(allowed_roles_to_create)}'}), 403
 
-
-# ---------------- RESET PASSWORD ----------------
-@auth_bp.route("/reset-password", methods=["POST"])
-def reset_password():
-    data = request.get_json()
-
-    email = data.get("email")
-    otp = data.get("otp")
-    new_password = data.get("new_password")
-
-    if not email or not otp or not new_password:
-        return jsonify({"message": "Email, OTP, and new password required"}), 400
-
-    user = User.query.filter(User.email.ilike(email)).first()
-    if not user:
-        return jsonify({"message": "User not found"}), 404
-
-    if user.otp != otp:
-        return jsonify({"message": "Invalid OTP"}), 400
-
-    user.password = generate_password_hash(new_password)
-    user.otp = None # Clear OTP after successful reset
+    hashed_password = generate_password_hash(data['password'], method='pbkdf2:sha256')
+    new_user = User(
+        name=data.get('name'),
+        email=data.get('email'),
+        password=hashed_password,
+        role=requested_role,
+        organization_id=organization_id,
+        department=data.get('department'),
+        designation=data.get('designation'),
+        status='Active'
+    )
+    db.session.add(new_user)
     db.session.commit()
 
-    return jsonify({"message": "Password reset successful"}), 200
+    log_activity(current_user.id, f"Created user '{new_user.name}' with role '{new_user.role}'", 'User', new_user.id)
+    return jsonify({'message': f'User ({requested_role}) created successfully', 'user': user_to_dict(new_user)}), 201
 
-# ---------------- CHANGE PASSWORD (LOGGED IN) ----------------
-@auth_bp.route("/change-password", methods=["POST"])
-@token_required
-def change_password(current_user):
-    data = request.get_json()
-    old_password = data.get("old_password")
-    new_password = data.get("new_password")
-
-    if not old_password or not new_password:
-        return jsonify({"message": "Old and new passwords required"}), 400
-
-    if not check_password_hash(current_user.password, old_password):
-        return jsonify({"message": "Incorrect old password"}), 401
-
-    current_user.password = generate_password_hash(new_password)
-    db.session.commit()
-
-    return jsonify({"message": "Password changed successfully"}), 200
-
-# ---------------- VERIFY PASSWORD (SECURITY CHECK) ----------------
-@auth_bp.route("/verify-password", methods=["POST"])
-@token_required
-def verify_password(current_user):
-    data = request.get_json()
-    password = data.get("password")
-
-    if not password:
-        return jsonify({"message": "Password required"}), 400
-
-    if check_password_hash(current_user.password, password):
-        return jsonify({"message": "Password verified"}), 200
-    else:
-        return jsonify({"message": "Incorrect password"}), 401
-
-# ---------------- USER MANAGEMENT (RBAC) ----------------
-
-@auth_bp.route("/users", methods=["GET"])
+@auth_bp.route('/users', methods=['GET'])
 @token_required
 def get_all_users(current_user):
-    """
-    Fetch all users.
-    Access: Super Admin, Admin, HR
-    """
-    if current_user.role in ["Super Admin", "Admin"]:
-        users = User.query.all()
-    elif current_user.role == "HR":
-        users = User.query.filter_by(organization_id=current_user.organization_id).all()
-    else:
-        return jsonify({"message": "Access denied. Admin or HR role required."}), 403
-
-    users_list = []
-    for user in users:
-        users_list.append({
-            "id": user.id,
-            "name": user.name,
-            "email": user.email,
-            "role": user.role,
-            "status": user.status,
-            "is_approved": user.is_approved,
-            "organization_id": user.organization_id
-        })
+    if current_user.role not in ['Super Admin', 'Admin', 'HR', 'Manager']:
+        return jsonify({'message': 'Permission denied'}), 403
     
-    return jsonify(users_list), 200
-
-@auth_bp.route("/users/<int:user_id>", methods=["GET"])
-@token_required
-def get_user_detail(current_user, user_id):
-    """
-    Fetch details of a specific user.
-    Access: 
-    - Users can view ONLY their own details.
-    - Super Admin, Admin, HR can view ANY user's details.
-    """
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({"message": "User not found"}), 404
-
-    # Access Control Logic
-    is_self = (current_user.id == user_id)
-    is_global_admin = (current_user.role in ["Super Admin", "Admin"])
-    is_org_hr = (current_user.role == "HR" and current_user.organization_id == user.organization_id)
-
-    if not (is_self or is_global_admin or is_org_hr):
-        return jsonify({"message": "Access denied. You can only view your own details."}), 403
-        
-    return jsonify({
-        "id": user.id,
-        "name": user.name,
-        "email": user.email,
-        "role": user.role,
-        "status": user.status,
-        "is_approved": user.is_approved,
-        "organization_id": user.organization_id
-    }), 200
-
-@auth_bp.route("/users/<int:user_id>/role", methods=["PUT"])
-@token_required
-def update_user_role(current_user, user_id):
-    """
-    Update a user's role.
-    Access: Super Admin, Admin
-    """
-    if current_user.role not in ["Super Admin", "Admin"]:
-        return jsonify({"message": "Access denied. Admin privileges required."}), 403
-        
-    data = request.get_json()
-    new_role = data.get("role")
+    query = User.query
+    if current_user.role == 'Super Admin':
+        pass  # No filter, sees all
+    elif current_user.role == 'Admin':
+        query = query.filter_by(organization_id=current_user.organization_id)
+    elif current_user.role in ['HR', 'Manager']:
+        # HR/Manager see users in their own department within the same organization
+        if not current_user.department:
+             return jsonify([]) # Return empty list if manager has no department
+        query = query.filter_by(
+            organization_id=current_user.organization_id,
+            department=current_user.department
+        )
     
-    valid_roles = ["Super Admin", "Admin", "HR", "User"]
-    if new_role not in valid_roles:
-        return jsonify({"message": f"Invalid role. Choose from {valid_roles}"}), 400
-        
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({"message": "User not found"}), 404
-        
-    user.role = new_role
-    db.session.commit()
-    
-    return jsonify({"message": f"User {user.name} role updated to {new_role}"}), 200
+    users = query.order_by(User.id).all()
+    return jsonify([user_to_dict(u) for u in users])

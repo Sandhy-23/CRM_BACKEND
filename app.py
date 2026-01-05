@@ -1,7 +1,7 @@
 from flask import Flask, jsonify
 from extensions import db
 from sqlalchemy.exc import IntegrityError
-from routes import auth_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp
+from routes import auth_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp
 from routes.chart_routes import chart_bp
 from config import Config
 import models
@@ -17,6 +17,7 @@ app.register_blueprint(dashboard_bp, url_prefix="/api")
 app.register_blueprint(plan_bp, url_prefix="/api")
 app.register_blueprint(chart_bp, url_prefix="/api")
 app.register_blueprint(quick_actions_bp, url_prefix="/api")
+app.register_blueprint(contact_bp)
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):

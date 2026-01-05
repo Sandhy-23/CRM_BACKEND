@@ -4,3 +4,4 @@ from .dashboard_routes import dashboard_bp
 from .plan_routes import plan_bp
 from .quick_action_routes import quick_actions_bp
 from .chart_routes import chart_bp
+from .contact_routes import contact_bp
