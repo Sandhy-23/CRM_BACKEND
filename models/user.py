@@ -18,6 +18,11 @@ class User(db.Model):
     date_of_joining = db.Column(db.DateTime)
     organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'), nullable=True)
 
+    is_verified = db.Column(db.Boolean, default=False)
+    otp_expiry = db.Column(db.DateTime)
+    reset_token = db.Column(db.String(100))
+    reset_token_expiry = db.Column(db.DateTime)
+
 class LoginHistory(db.Model):
     __tablename__ = "login_history"
 

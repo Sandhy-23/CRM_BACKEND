@@ -5,3 +5,5 @@ from .plan_routes import plan_bp
 from .quick_action_routes import quick_actions_bp
 from .chart_routes import chart_bp
 from .contact_routes import contact_bp
+from .lead_routes import lead_bp
+from .deal_routes import deal_bp

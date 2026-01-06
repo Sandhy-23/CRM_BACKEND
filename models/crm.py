@@ -2,55 +2,49 @@ from extensions import db
 from datetime import datetime
 
 class Lead(db.Model):
-    __tablename__ = "leads"
+    __tablename__ = 'leads'
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    email = db.Column(db.String(120))
+    first_name = db.Column(db.String(50))
+    last_name = db.Column(db.String(50))
+    company = db.Column(db.String(100))
+    email = db.Column(db.String(100))
     phone = db.Column(db.String(20))
-    description = db.Column(db.Text) # For contact form messages
-    status = db.Column(db.String(50), default="New") # New, Contacted, Qualified, Lost
-    score = db.Column(db.Integer, default=0)
+    mobile = db.Column(db.String(20))
     source = db.Column(db.String(50))
-    assigned_to = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
-    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
+    status = db.Column(db.String(50), default='New')
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    company_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    assigned_to = db.Column(db.Integer)
 
 class Deal(db.Model):
-    __tablename__ = "deals"
+    __tablename__ = 'deals'
     id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(100), nullable=False)
-    value = db.Column(db.Float, default=0.0)
-    stage = db.Column(db.String(50), default="Prospecting")
-    status = db.Column(db.String(50), default='Open') # Open, Won, Lost
-    pipeline_id = db.Column(db.Integer, nullable=True)
-    contact_id = db.Column(db.Integer, db.ForeignKey('contacts.id'), nullable=True)
-    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
+    deal_name = db.Column(db.String(100))
+    amount = db.Column(db.Float)
+    stage = db.Column(db.String(50))
+    probability = db.Column(db.Integer)
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    company_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    account_id = db.Column(db.Integer)
+    contact_id = db.Column(db.Integer)
+    status = db.Column(db.String(50))
     closed_at = db.Column(db.DateTime)
-
-class Ticket(db.Model):
-    __tablename__ = "tickets"
-    id = db.Column(db.Integer, primary_key=True)
-    subject = db.Column(db.String(200), nullable=False)
-    priority = db.Column(db.String(20), default="Medium")
-    status = db.Column(db.String(20), default="Open")
-    contact_id = db.Column(db.Integer, db.ForeignKey('contacts.id'))
-    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
-
-class Campaign(db.Model):
-    __tablename__ = "campaigns"
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    type = db.Column(db.String(50)) # Email, WhatsApp
-    status = db.Column(db.String(20), default="Draft")
-    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
 
 class Activity(db.Model):
     __tablename__ = 'activities'
     id = db.Column(db.Integer, primary_key=True)
-    description = db.Column(db.String(200))
-    status = db.Column(db.String(50), default='Pending') # Pending, Completed
-    due_date = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    description = db.Column(db.String(255))
+    status = db.Column(db.String(50))
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class Ticket(db.Model):
+    __tablename__ = 'tickets'
+    id = db.Column(db.Integer, primary_key=True)
+
+class Campaign(db.Model):
+    __tablename__ = 'campaigns'
+    id = db.Column(db.Integer, primary_key=True)

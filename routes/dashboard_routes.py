@@ -21,11 +21,11 @@ def super_admin_dashboard(current_user, org_name):
         return jsonify({"message": f"Unauthorized. You are logged in as '{current_user.role}', but this route requires 'Super Admin'."}), 403
     
     # 1. Global Metrics (Aggregated from DB)
-    total_users = User.query.count()
-    total_orgs = Organization.query.count()
+    # Filter by Organization for isolation
+    total_users = User.query.filter_by(organization_id=current_user.organization_id).count()
     
     # 2. Recent System Activity (From LoginHistory table)
-    recent_logins = LoginHistory.query.order_by(LoginHistory.login_time.desc()).limit(5).all()
+    recent_logins = LoginHistory.query.join(User).filter(User.organization_id == current_user.organization_id).order_by(LoginHistory.login_time.desc()).limit(5).all()
     activity_log = [{
         "user_id": log.user_id,
         "time": log.login_time.isoformat(),
@@ -35,7 +35,7 @@ def super_admin_dashboard(current_user, org_name):
 
     # 3. All Users List
     # Optimization: Limit to first 50 users to prevent large payload
-    all_users = User.query.limit(50).all()
+    all_users = User.query.filter_by(organization_id=current_user.organization_id).limit(50).all()
     users_data = [{
         "id": user.id,
         "name": user.name,
@@ -49,7 +49,7 @@ def super_admin_dashboard(current_user, org_name):
         "role": "Super Admin",
         "metrics": {
             "total_users": total_users,
-            "total_organizations": total_orgs
+            "organization": current_user.organization.name if current_user.organization else "N/A"
         },
         "recent_activity": activity_log,
         "users": users_data
@@ -186,9 +186,9 @@ def get_kpis(current_user):
     activities_query = Activity.query
 
     if start_date:
-        leads_query = leads_query.filter(Lead.created_at >= start_date)
-        deals_query = deals_query.filter(Deal.created_at >= start_date)
-        activities_query = activities_query.filter(Activity.created_at >= start_date)
+        leads_query = leads_query.filter(Lead.created_at >= start_date, Lead.company_id == current_user.organization_id)
+        deals_query = deals_query.filter(Deal.created_at >= start_date, Deal.company_id == current_user.organization_id)
+        activities_query = activities_query.filter(Activity.created_at >= start_date, Activity.organization_id == current_user.organization_id)
 
     # 3. Calculate Metrics
     total_leads = leads_query.count()
@@ -200,7 +200,7 @@ def get_kpis(current_user):
     lost_deals = deals_query.filter_by(status='Lost').count()
     
     # Revenue (Sum of value of Won deals)
-    revenue = deals_query.filter_by(status='Won').with_entities(func.sum(Deal.value)).scalar() or 0.0
+    revenue = deals_query.filter_by(status='Won').with_entities(func.sum(Deal.amount)).scalar() or 0.0
 
     tasks_completed = activities_query.filter_by(status='Completed').count()
 
@@ -213,15 +213,16 @@ def get_kpis(current_user):
 
 # --- EMPLOYEE MANAGEMENT (CRUD) ---
 
+@dashboard_bp.route("/users", methods=["POST"])
 @dashboard_bp.route("/employees", methods=["POST"])
 @token_required
 def create_employee(current_user):
     """
     Create Employee.
-    Allowed roles: Super Admin, Admin, HR.
+    Allowed roles: Super Admin, Admin. (HR cannot create users)
     """
-    if current_user.role not in ["Super Admin", "Admin", "HR"]:
-        return jsonify({"message": "Unauthorized. Only Admin/HR can create employees."}), 403
+    if current_user.role not in ["Super Admin", "Admin"]:
+        return jsonify({"message": "Unauthorized. Only Super Admin or Admin can create users."}), 403
 
     data = request.get_json()
     email = data.get("email")
@@ -237,6 +238,23 @@ def create_employee(current_user):
         except ValueError:
             pass
 
+    # Normalize Role
+    role = data.get("role", "User")
+    if role.upper() == 'SUPER ADMIN': role = 'Super Admin'
+    if role.upper() == 'ADMIN': role = 'Admin'
+    if role.upper() == 'HR': role = 'HR'
+    if role.upper() == 'MANAGER': role = 'Manager'
+    if role.upper() == 'EMPLOYEE': role = 'Employee'
+
+    # Security Check: Only Super Admin can create Super Admin
+    if role == 'Super Admin' and current_user.role != 'Super Admin':
+        return jsonify({"message": "Unauthorized. Only Super Admin can create another Super Admin."}), 403
+
+    # Organization Logic
+    org_id = current_user.organization_id
+    if current_user.role == "Super Admin":
+        org_id = data.get("organization_id") # Super Admin must specify org or logic needs to handle it
+
     new_user = User(
         name=data.get("name"),
         email=email,
@@ -244,15 +262,19 @@ def create_employee(current_user):
         phone=data.get("phone"),
         department=data.get("department"),
         designation=data.get("designation"),
-        role=data.get("role", "User"),
+        role=role,
         status=data.get("status", "Active"),
         date_of_joining=doj,
         is_approved=True, # Admin created users are auto-approved
-        organization_id=current_user.organization_id if current_user.role != "Super Admin" else data.get("organization_id")
+        organization_id=org_id
     )
 
     db.session.add(new_user)
     db.session.commit()
+
+    # Email Notification for new Admin
+    if role == 'Admin':
+        print(f"--- EMAIL NOTIFICATION ---\nTo: {email}\nSubject: You have been made an Admin\nMessage: The Super Admin has created an Admin account for you.\n--------------------------")
 
     return jsonify({"message": "Employee created successfully", "id": new_user.id}), 201
 
@@ -453,3 +475,35 @@ def dashboard_task_stats(current_user):
         
     stats = query.all()
     return jsonify({status: count for status, count in stats})
+
+# --- CRM DASHBOARD WIDGETS ---
+
+@dashboard_bp.route('/dashboard/leads-summary', methods=['GET'])
+@token_required
+def leads_summary(current_user):
+    # Reuse the RBAC logic from lead_routes if possible, or replicate simple filter
+    query = Lead.query
+    if current_user.role != 'Super Admin':
+        query = query.filter_by(company_id=current_user.organization_id)
+        
+    total = query.count()
+    today = datetime.utcnow().date()
+    new_today = query.filter(func.date(Lead.created_at) == today).count()
+    converted = query.filter_by(status='Converted').count()
+    
+    return jsonify({
+        "total_leads": total,
+        "new_today": new_today,
+        "converted": converted
+    })
+
+@dashboard_bp.route('/dashboard/deals-pipeline', methods=['GET'])
+@token_required
+def deals_pipeline(current_user):
+    query = Deal.query
+    if current_user.role != 'Super Admin':
+        query = query.filter_by(company_id=current_user.organization_id)
+        
+    # Group by Stage
+    results = db.session.query(Deal.stage, func.count(Deal.id)).filter(Deal.id.in_([d.id for d in query.with_entities(Deal.id).all()])).group_by(Deal.stage).all()
+    return jsonify({r[0]: r[1] for r in results})

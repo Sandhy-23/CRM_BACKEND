@@ -96,6 +96,57 @@ def migrate_db():
                 except Exception as e:
                     print(f"contacts.{col_name} check: {e}")
 
+            # 10. Fix Leads Table (Zoho Fields)
+            lead_cols = [
+                ("first_name", "VARCHAR(50)"),
+                ("last_name", "VARCHAR(50)"),
+                ("company", "VARCHAR(100)"),
+                ("mobile", "VARCHAR(20)"),
+                ("lead_source", "VARCHAR(50)"),
+                ("lead_status", "VARCHAR(50) DEFAULT 'New'"),
+                ("company_id", "INTEGER"), # Organization ID
+                ("owner_id", "INTEGER")
+            ]
+            for col_name, col_type in lead_cols:
+                try:
+                    connection.execute(text(f"ALTER TABLE leads ADD COLUMN {col_name} {col_type}"))
+                    print(f"Added '{col_name}' to leads table.")
+                except Exception as e:
+                    print(f"leads.{col_name} check: {e}")
+
+            # 11. Create Accounts Table (For Lead Conversion)
+            try:
+                connection.execute(text("""
+                    CREATE TABLE IF NOT EXISTS accounts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        account_name VARCHAR(100) NOT NULL,
+                        phone VARCHAR(20),
+                        website VARCHAR(100),
+                        owner_id INTEGER,
+                        organization_id INTEGER,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                print("Verified 'accounts' table.")
+            except Exception as e:
+                print(f"accounts table check: {e}")
+
+            # 12. Fix Users Table (Auth & OTP) - Redundant if app.py auto-migrates, but good for safety
+            auth_cols = [
+                ("is_verified", "BOOLEAN DEFAULT 0"),
+                ("otp_code", "VARCHAR(6)"),
+                ("otp_expiry", "DATETIME"),
+                ("reset_token", "VARCHAR(100)"),
+                ("reset_token_expiry", "DATETIME")
+            ]
+            for col_name, col_type in auth_cols:
+                try:
+                    # SQLite doesn't support ALTER TABLE ADD COLUMN with multiple columns in one statement easily in all versions, so loop is good.
+                    connection.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
+                    print(f"Added '{col_name}' to users table.")
+                except Exception as e:
+                    print(f"users.{col_name} check: {e}")
+
             connection.commit()
             print("Migration complete. You can now restart the server.")
 
