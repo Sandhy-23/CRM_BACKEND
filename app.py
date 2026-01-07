@@ -45,6 +45,7 @@ with app.app_context():
                 print("⚠️ Column 'is_verified' not found. Applying migrations...")
                 auth_cols = [
                     ("is_verified", "BOOLEAN DEFAULT 0"),
+                    ("otp", "VARCHAR(6)"),
                     ("otp_expiry", "DATETIME"),
                     ("reset_token", "VARCHAR(100)"),
                     ("reset_token_expiry", "DATETIME")
