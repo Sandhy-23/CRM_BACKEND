@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from routes.auth_routes import token_required
+from routes.auth_routes import token_required, send_email
 from models.user import User, LoginHistory
 from models.organization import Organization
 from models.crm import Lead, Deal, Activity
@@ -96,6 +96,39 @@ def hr_dashboard(current_user, org_name):
     # HR sees only users in their own Organization
     if current_user.organization:
         org_users = User.query.filter_by(organization_id=current_user.organization_id).all()
+        org_name_db = current_user.organization.name
+    else:
+        org_users = []
+        org_name_db = "No Organization"
+
+    employees_data = [{
+        "id": u.id,
+        "name": u.name,
+        "email": u.email,
+        "role": u.role,
+        "status": "Active" if u.is_approved else "Pending"
+    } for u in org_users]
+
+    return jsonify({
+        "role": current_user.role,
+        "organization": org_name_db,
+        "employee_count": len(org_users),
+        "employees": employees_data
+    })
+
+# --- MANAGER DASHBOARD ---
+@dashboard_bp.route("/<org_name>/manager/dashboard", methods=["GET"])
+@token_required
+def manager_dashboard(current_user, org_name):
+    if current_user.role not in ["Manager", "Admin", "Super Admin"]:
+        return jsonify({"message": "Unauthorized"}), 403
+    
+    # Manager sees employees in their own department within the org
+    if current_user.organization:
+        org_users = User.query.filter_by(
+            organization_id=current_user.organization_id, 
+            department=current_user.department
+        ).all()
         org_name_db = current_user.organization.name
     else:
         org_users = []
@@ -219,10 +252,10 @@ def get_kpis(current_user):
 def create_employee(current_user):
     """
     Create Employee.
-    Allowed roles: Super Admin, Admin. (HR cannot create users)
+    Allowed roles: Super Admin, Admin, HR, Manager.
     """
-    if current_user.role not in ["Super Admin", "Admin"]:
-        return jsonify({"message": "Unauthorized. Only Super Admin or Admin can create users."}), 403
+    if current_user.role not in ["Super Admin", "Admin", "HR", "Manager"]:
+        return jsonify({"message": "Unauthorized. Only Super Admin, Admin, HR, or Manager can create users."}), 403
 
     data = request.get_json()
     email = data.get("email")
@@ -246,9 +279,15 @@ def create_employee(current_user):
     if role.upper() == 'MANAGER': role = 'Manager'
     if role.upper() == 'EMPLOYEE': role = 'Employee'
 
-    # Security Check: Only Super Admin can create Super Admin
-    if role == 'Super Admin' and current_user.role != 'Super Admin':
-        return jsonify({"message": "Unauthorized. Only Super Admin can create another Super Admin."}), 403
+    # Role Hierarchy Check
+    role_levels = {"Super Admin": 4, "Admin": 3, "Manager": 2, "HR": 2, "Employee": 1, "User": 1}
+    
+    creator_level = role_levels.get(current_user.role, 0)
+    target_level = role_levels.get(role, 0)
+
+    # Prevent creation of users with equal or higher privileges (except Super Admin)
+    if current_user.role != "Super Admin" and target_level >= creator_level:
+        return jsonify({"message": f"Unauthorized. You cannot create a user with role '{role}'."}), 403
 
     # Organization Logic
     org_id = current_user.organization_id
@@ -274,7 +313,7 @@ def create_employee(current_user):
 
     # Email Notification for new Admin
     if role == 'Admin':
-        print(f"--- EMAIL NOTIFICATION ---\nTo: {email}\nSubject: You have been made an Admin\nMessage: The Super Admin has created an Admin account for you.\n--------------------------")
+        send_email(email, "You have been made an Admin", "The Super Admin has created an Admin account for you. You can now login to the CRM.")
 
     return jsonify({"message": "Employee created successfully", "id": new_user.id}), 201
 

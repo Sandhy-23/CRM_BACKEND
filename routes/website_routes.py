@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from extensions import db
 from models.crm import Lead
+from datetime import datetime
 
 website_bp = Blueprint("website", __name__)
 
@@ -24,12 +25,19 @@ def contact():
     email = data.get("email")
     message = data.get("message")
 
+    # Split name into first and last name
+    name_parts = name.strip().split(" ", 1) if name else ["Visitor", ""]
+    first_name = name_parts[0]
+    last_name = name_parts[1] if len(name_parts) > 1 else "Unknown"
+
     # Create a new Lead from the contact form
     new_lead = Lead(
-        name=name,
+        first_name=first_name,
+        last_name=last_name,
         email=email,
-        description=message,
-        source="Website Contact Form"
+        company="Website Inquiry", # Default company for public leads
+        source="Website Contact Form",
+        created_at=datetime.utcnow()
     )
     db.session.add(new_lead)
     db.session.commit()

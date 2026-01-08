@@ -34,12 +34,17 @@ def get_deal_query(current_user):
 @token_required
 def create_deal(current_user):
     data = request.get_json()
+    if not data:
+        return jsonify({'message': 'Invalid JSON data'}), 400
     
-    if not data.get('deal_name') or not data.get('stage'):
-        return jsonify({'message': 'Deal Name and Stage are required'}), 400
+    # Support 'deal_name' from legacy requests/Postman
+    deal_name = data.get('deal_name') or data.get('title')
+    if not deal_name or not data.get('stage'):
+        print(f"❌ Validation Error (Create Deal): Missing deal_name or stage. Received: {data}")
+        return jsonify({'error': 'Validation error', 'message': 'Deal name is required'}), 400
 
     new_deal = Deal(
-        deal_name=data.get('deal_name'),
+        deal_name=deal_name,
         amount=data.get('amount', 0),
         stage=data.get('stage'),
         probability=data.get('probability', 0),
@@ -47,7 +52,7 @@ def create_deal(current_user):
         created_at=datetime.utcnow()
     )
     # Assign Organization
-    new_deal.company_id = current_user.organization_id if current_user.role != 'Super Admin' else 1
+    new_deal.company_id = current_user.organization_id
     
     db.session.add(new_deal)
     db.session.commit()

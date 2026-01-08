@@ -1,155 +1,146 @@
-import jwt
+from flask import Blueprint, request, jsonify, current_app
+from extensions import db
+from models.user import User, LoginHistory
+from flask_jwt_extended import create_access_token, verify_jwt_in_request, get_jwt_identity
+from werkzeug.security import generate_password_hash, check_password_hash
+import datetime
 import random
-import string
+import urllib.parse
+from functools import wraps
+from sqlalchemy import text
+import re
 import smtplib
-import os
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from functools import wraps
-from flask import request, jsonify, Blueprint, current_app
-from werkzeug.security import generate_password_hash, check_password_hash
-from models import User, ActivityLog
-from models.crm import Lead # Assuming Lead is in crm
-from models.organization import Organization
-from extensions import db
-from datetime import datetime, timedelta
+import os
+from dotenv import load_dotenv, find_dotenv
+
+# Load environment variables from .env file
+basedir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+env_path = os.path.join(basedir, '.env')
+env_typo_path = os.path.join(basedir, '.env.') # Handle potential typo
+
+if os.path.exists(env_path):
+    load_dotenv(env_path, override=True)
+    print(f"✅ Loaded .env from: {env_path}")
+elif os.path.exists(env_typo_path):
+    load_dotenv(env_typo_path, override=True)
+    print(f"⚠️ Loaded .env from typo path: {env_typo_path}. Please rename to .env")
+else:
+    load_dotenv(find_dotenv(), override=True)
 
 auth_bp = Blueprint('auth', __name__)
 
-# --- Helpers ---
+# --- In-Memory Storage (Replaces DB Storage for OTPs) ---
+signup_storage = {} # { email: { 'otp': str, 'name': str, 'password_hash': str, 'expiry': datetime } }
+password_reset_storage = {} # { email: { 'otp': str, 'expiry': datetime } }
+
+# --- Helper Functions ---
+
+def generate_otp():
+    """Generates a 6-digit OTP."""
+    return str(random.randint(100000, 999999))
+
+def validate_email_format(email):
+    """Validates email format using Regex."""
+    regex = r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$'
+    return re.match(regex, email) is not None
+
+def send_email(to_email, subject, body):
+    """
+    Sends an email using SMTP if configured, otherwise logs to console.
+    """
+    # 1. Try Real Email (if env vars are set)
+    smtp_server = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
+    smtp_port = int(os.environ.get('MAIL_PORT', 587))
+    smtp_user = os.environ.get('MAIL_USERNAME')
+    smtp_password = os.environ.get('MAIL_PASSWORD')
+
+    if smtp_user and smtp_password:
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = smtp_user
+            msg['To'] = to_email
+            msg['Subject'] = subject
+            msg.attach(MIMEText(body, 'plain'))
+
+            server = smtplib.SMTP(smtp_server, smtp_port)
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.send_message(msg)
+            server.quit()
+            print(f"✅ Email sent to {to_email} via SMTP")
+            return True
+        except Exception as e:
+            print(f"❌ Failed to send email: {e}")
+            if "535" in str(e):
+                print(f"💡 HINT: Error 535 means 'Bad Credentials'.")
+                print(f"   -> System attempted to login as: '{smtp_user}'")
+                print("   1. RESTART your Flask server to load .env changes.")
+                print("   2. Check if MAIL_PASSWORD is your 16-char Google App Password (NOT login password).")
+                print("   3. Remove spaces from the password in .env.")
+            return False
+
+    # 2. No Mock Output (Requested for Security)
+    print(f"⚠️ SMTP not configured. OTP to {to_email} was NOT sent.\n   -> MAIL_USERNAME present: {bool(smtp_user)}\n   -> MAIL_PASSWORD present: {bool(smtp_password)}")
+    return False
 
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        token = None
-        if 'Authorization' in request.headers:
-            try:
-                token = request.headers['Authorization'].split(" ")[1]
-            except IndexError:
-                return jsonify({'message': 'Bearer token malformed'}), 401
-        if not token:
-            return jsonify({'message': 'Token is missing'}), 401
         try:
-            data = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
-            current_user = User.query.get(data['user_id'])
+            verify_jwt_in_request()
+            user_id = get_jwt_identity()
+            current_user = User.query.get(int(user_id))
             if not current_user:
-                return jsonify({'message': 'User not found'}), 401
+                return jsonify({'message': 'User not found!'}), 401
         except Exception as e:
             return jsonify({'message': 'Token is invalid!', 'error': str(e)}), 401
+            
         return f(current_user, *args, **kwargs)
     return decorated
 
-def log_activity(user_id, action, entity_type=None, entity_id=None):
-    """Helper to log activity to the database."""
-    try:
-        log = ActivityLog(
-            user_id=user_id,
-            action=action,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            timestamp=datetime.utcnow()
-        )
-        db.session.add(log)
-        db.session.commit()
-    except Exception as e:
-        print(f"Error logging activity: {e}")
-        db.session.rollback()
-
-def user_to_dict(user):
-    """Safely convert a User object to a dictionary."""
-    if not user:
-        return None
-    return {
-        'id': user.id,
-        'name': user.name,
-        'email': user.email,
-        'role': user.role,
-        'status': user.status,
-        'organization_id': user.organization_id,
-        'department': user.department,
-        'designation': user.designation,
-        'created_at': user.created_at.isoformat() if user.created_at else None
-    }
-
-def generate_otp():
-    return ''.join(random.choices(string.digits, k=6))
-
-def send_email(to_email, subject, body):
-    """Sends an email using SMTP."""
-    # Configuration - Use Environment Variables for Security
-    sender_email = os.environ.get("MAIL_USERNAME")
-    sender_password = os.environ.get("MAIL_PASSWORD")
-    smtp_server = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("MAIL_PORT", 587))
-
-    if not sender_email or not sender_password:
-        print(f"⚠️ Email credentials missing in environment variables. Mock email to {to_email}:\n{body}")
-        return
-
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = sender_email
-        msg['To'] = to_email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain'))
-
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()
-        server.login(sender_email, sender_password)
-        text = msg.as_string()
-        server.sendmail(sender_email, to_email, text)
-        server.quit()
-        print(f"✅ Email sent to {to_email}")
-    except Exception as e:
-        print(f"❌ Failed to send email: {e}")
-
-# --- Signup & Login ---
+# --- Routes ---
 
 @auth_bp.route('/signup', methods=['POST'])
 def signup():
     data = request.get_json()
-    if not data or not data.get('email') or not data.get('password') or not data.get('name'):
-        return jsonify({'message': 'Name, email, and password are required'}), 400
+    name = data.get('name')
+    email = data.get('email')
+    password = data.get('password')
 
-    # Check if user already exists
-    if User.query.filter_by(email=data['email']).first():
-        return jsonify({'message': 'User with this email already exists'}), 409
+    if not email or not password:
+        return jsonify({"error": "Email and password are required"}), 400
 
-    # Public Signup -> New Company -> Super Admin
-    role = 'Super Admin'
-    status = 'Active' # Active but needs OTP verification
-    
-    # Create a new organization for the new Super Admin
-    new_org = Organization(name=f"{data.get('name')}'s Company")
-    db.session.add(new_org)
-    db.session.flush()
-    organization_id = new_org.id
-    
-    hashed_password = generate_password_hash(data['password'], method='pbkdf2:sha256')
+    # 2. Validate Email Format
+    if not validate_email_format(email):
+        return jsonify({"error": "Invalid email format"}), 400
+
+    # Check if email already exists in DB
+    existing_user = User.query.filter_by(email=email).first()
+    if existing_user:
+        return jsonify({"error": "Email already registered. Please use the Login endpoint."}), 409
+
+    # Generate OTP
     otp = generate_otp()
+    expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=2)
 
-    new_user = User(
-        name=data.get('name'),
-        email=data.get('email'),
-        password=hashed_password,
-        role=role,
-        status=status,
-        organization_id=organization_id,
-        is_verified=False, # Must verify OTP
-        otp=otp,
-        otp_expiry=datetime.utcnow() + timedelta(minutes=2)
-    )
-    db.session.add(new_user)
-    db.session.commit()
+    # Store in Memory (Temporary)
+    signup_storage[email] = {
+        'otp': otp,
+        'name': name,
+        'password_hash': generate_password_hash(password),
+        'expiry': expiry
+    }
 
-    # Send OTP Email
-    send_email(data.get('email'), "Your CRM OTP Code", f"Your OTP code is: {otp}. It expires in 2 minutes.")
-
-    return jsonify({
-        'message': 'Signup successful. Please verify the OTP sent to your email.',
-        'role': role,
-        'email': data.get('email')
-    }), 201
+    # Send OTP via SMTP
+    email_sent = send_email(email, "Verify your account", f"Your OTP is {otp}")
+    if email_sent:
+        return jsonify({
+            "message": "OTP sent to your email"
+        }), 200
+    else:
+        return jsonify({"error": "Failed to send OTP. Please check server logs."}), 500
 
 @auth_bp.route('/verify-otp', methods=['POST'])
 def verify_otp():
@@ -157,82 +148,97 @@ def verify_otp():
     email = data.get('email')
     otp = data.get('otp')
 
-    if not email or not otp:
-        return jsonify({'message': 'Email and OTP are required'}), 400
+    # 1. Check In-Memory Storage
+    record = signup_storage.get(email)
+    
+    if not record:
+        # UX Improvement: Check if user is already in DB to give better error
+        if User.query.filter_by(email=email).first():
+             return jsonify({"error": "User already registered. Please use the Login endpoint."}), 400
+        return jsonify({"error": "No pending signup found or OTP expired."}), 400
 
-    user = User.query.filter_by(email=email).first()
-    if not user:
-        return jsonify({'message': 'User not found'}), 404
+    # 2. Validate OTP and Expiry
+    if record['otp'] != otp:
+        return jsonify({"error": "Invalid OTP"}), 400
+    
+    if datetime.datetime.utcnow() > record['expiry']:
+        del signup_storage[email]
+        return jsonify({"error": "OTP has expired"}), 400
 
-    # Check if already verified
-    if getattr(user, 'is_verified', False):
-        return jsonify({'message': 'User already verified'}), 200
+    # 3. Create User in Database (Final Step)
+    # Determine Role: First user = Super Admin, others = User (default)
+    role = "Super Admin" if User.query.count() == 0 else "User"
 
-    # Verify OTP
-    # Note: Using otp_code from model update
-    stored_otp = user.otp
-    expiry = getattr(user, 'otp_expiry', None)
+    new_user = User(
+        name=record['name'],
+        email=email,
+        password=record['password_hash'],
+        role=role,
+        is_verified=True,
+        status="Active"
+    )
 
-    if stored_otp != otp:
-        return jsonify({'message': 'Invalid OTP'}), 400
+    try:
+        db.session.add(new_user)
+        db.session.commit()
+        
+        # Clear memory
+        del signup_storage[email]
 
-    if expiry and datetime.utcnow() > expiry:
-        return jsonify({'message': 'OTP has expired'}), 400
+        return jsonify({"message": "Account verified successfully. You can now login."}), 200
 
-    # Success
-    user.is_verified = True
-    user.otp = None
-    user.otp_expiry = None
-    db.session.commit()
-
-    return jsonify({'message': 'Email verified successfully. You can now login.'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+    
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
-    if not data or not data.get('email') or not data.get('password'):
-        return jsonify({'message': 'Email and password are required'}), 401
+    email = data.get('email')
+    password = data.get('password')
 
-    user = User.query.filter_by(email=data.get('email')).first()
+    user = User.query.filter_by(email=email).first()
 
-    if not user or not check_password_hash(user.password, data.get('password')):
-        return jsonify({'message': 'Invalid credentials'}), 401
+    # 1. Verify credentials
+    if not user or not check_password_hash(user.password, password):
+        return jsonify({"error": "Invalid email or password"}), 401
+
+    # 1.1 Check if user is verified from signup
+    if not user.is_verified:
+        return jsonify({"error": "Account not verified. Please complete the signup OTP verification first."}), 403
+
+    # 2. Success - Generate Token & URL directly
+    # Generate Token (Include email and role as requested)
+    access_token = create_access_token(
+        identity=str(user.id), 
+        additional_claims={"email": user.email, "role": user.role}
+    )
     
-    # Login Rule: Email Verified
-    if not getattr(user, 'is_verified', True): # Default True for legacy users
-        return jsonify({'message': 'Email not verified. Please verify your OTP.'}), 403
+    # Log Activity
+    log = LoginHistory(user_id=user.id, login_time=datetime.datetime.utcnow(), ip_address=request.remote_addr, status="Success")
+    db.session.add(log)
+    db.session.commit()
 
-    if user.status != 'Active':
-        return jsonify({'message': f'Account is not active. Current status: {user.status}'}), 403
-
-    token = jwt.encode({
-        'user_id': user.id,
-        'exp': datetime.utcnow() + timedelta(hours=24)
-    }, current_app.config['SECRET_KEY'], algorithm="HS256")
-
-    log_activity(user.id, "User logged in", "User", user.id)
+    # 3. Determine Full Redirect URL
+    base_url = os.environ.get('FRONTEND_BASE_URL', 'https://rvhcrm.com')
     
-    # Determine redirect URL based on role
-    base_url = request.host_url.rstrip('/')
-    redirect_path = "/user/dashboard"
+    # Sanitize username (lowercase, remove special chars)
+    username_slug = re.sub(r'[^a-zA-Z0-9]', '', user.name.lower()) if user.name else "user"
 
-    if user.role == "Super Admin":
-        redirect_path = "/super-admin/dashboard"
-    elif user.role == "Admin":
-        redirect_path = "/admin/dashboard"
-    elif user.role == "HR":
-        redirect_path = "/hr/dashboard"
+    # Map Role to URL segment
+    role_slug = user.role.lower().replace(" ", "-")
+    if role_slug == "employee":
+        role_slug = "user"
 
+    redirect_url = f"{base_url.rstrip('/')}/{username_slug}/{role_slug}/dashboard"
+
+    # 4. Return the mandatory response
     return jsonify({
-        'token': token,
-        'user': {
-            'id': user.id,
-            'name': user.name,
-            'email': user.email,
-            'role': user.role
-        },
-        'redirect_url': f"{base_url}{redirect_path}"
-    })
+        "token": access_token,
+        "role": user.role,
+        "redirect_url": redirect_url
+    }), 200
 
 @auth_bp.route('/forgot-password', methods=['POST'])
 def forgot_password():
@@ -241,135 +247,45 @@ def forgot_password():
     
     user = User.query.filter_by(email=email).first()
     if not user:
-        return jsonify({'message': 'If this email exists, a reset link has been sent.'}), 200
-
-    # Generate Reset Token
-    token = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
-    user.reset_token = token
-    user.reset_token_expiry = datetime.utcnow() + timedelta(hours=1)
-    db.session.commit()
-
-    reset_link = f"{request.host_url.rstrip('/')}/reset-password?token={token}"
+        # Security: Do not reveal if email exists
+        return jsonify({"message": "If this email is registered, an OTP has been sent."}), 200
     
-    # Send Reset Email
-    send_email(email, "Password Reset Request", f"Click the link to reset your password: {reset_link}\nThis link expires in 1 hour.")
-
-    return jsonify({'message': 'Password reset link sent to your email.'}), 200
+    otp = generate_otp()
+    expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=2)
+    
+    # Store OTP in-memory for password reset
+    password_reset_storage[email] = {'otp': otp, 'expiry': expiry}
+    
+    if send_email(email, "Reset Password OTP", f"Your password reset OTP is {otp}"):
+        return jsonify({"message": "If this email is registered, an OTP has been sent."}), 200
+    else:
+        return jsonify({"error": "Failed to send password reset email."}), 500
 
 @auth_bp.route('/reset-password', methods=['POST'])
 def reset_password():
     data = request.get_json()
-    token = data.get('token')
+    email = data.get('email')
+    otp = data.get('otp')
     new_password = data.get('new_password')
-
-    if not token or not new_password:
-        return jsonify({'message': 'Token and new password are required'}), 400
-
-    user = User.query.filter_by(reset_token=token).first()
+    
+    user = User.query.filter_by(email=email).first()
     if not user:
-        return jsonify({'message': 'Invalid or expired token'}), 400
+        return jsonify({"error": "Invalid request"}), 400
+        
+    # Check in-memory storage for the reset OTP
+    record = password_reset_storage.get(email)
 
-    if user.reset_token_expiry and datetime.utcnow() > user.reset_token_expiry:
-        return jsonify({'message': 'Token has expired'}), 400
+    if not record:
+        return jsonify({"error": "No pending password reset found or OTP expired."}), 400
 
-    user.password = generate_password_hash(new_password, method='pbkdf2:sha256')
-    user.reset_token = None
-    user.reset_token_expiry = None
-    db.session.commit()
-
-    return jsonify({'message': 'Password updated successfully. You can now login.'}), 200
-
-@auth_bp.route('/me', methods=['GET'])
-@token_required
-def get_me(current_user):
-    return jsonify(user_to_dict(current_user))
-
-# --- User Management Hierarchy ---
-
-@auth_bp.route('/users', methods=['POST'])
-@token_required
-def create_user(current_user):
-    data = request.get_json()
-    required_fields = ['name', 'email', 'password', 'role']
-    if not all(field in data for field in required_fields):
-        return jsonify({'message': f'Missing required fields: {", ".join(required_fields)}'}), 400
-
-    if User.query.filter_by(email=data['email']).first():
-        return jsonify({'message': 'User with this email already exists'}), 409
-
-    # Normalize Role Input (Handle "ADMIN", "Admin", "admin")
-    requested_role = data.get('role', 'User')
-    if requested_role.upper() == 'SUPER ADMIN':
-        requested_role = 'Super Admin'
-    elif requested_role.upper() == 'ADMIN':
-        requested_role = 'Admin'
-    elif requested_role.upper() == 'HR':
-        requested_role = 'HR'
-    elif requested_role.upper() == 'MANAGER':
-        requested_role = 'Manager'
-    elif requested_role.upper() == 'EMPLOYEE':
-        requested_role = 'Employee'
-
-    organization_id = None
-    allowed_roles_to_create = []
-
-    if current_user.role == 'Super Admin':
-        allowed_roles_to_create = ['Super Admin', 'Admin']
-        organization_id = data.get('organization_id')
-        # If Super Admin creates an Admin without an Org ID, create a new Organization automatically
-        if not organization_id:
-            new_org = Organization(name=f"{data.get('name')}'s Organization")
-            db.session.add(new_org)
-            db.session.flush()
-            organization_id = new_org.id
-    
-    elif current_user.role == 'Admin':
-        allowed_roles_to_create = ['HR', 'Manager', 'Employee']
-        organization_id = current_user.organization_id
-
-    else:  # HR, Manager, Employee
-        return jsonify({'message': 'Permission denied. You are not authorized to create users.'}), 403
-
-    if requested_role not in allowed_roles_to_create:
-        return jsonify({'message': f'As a {current_user.role}, you can only create users with roles: {", ".join(allowed_roles_to_create)}'}), 403
-
-    hashed_password = generate_password_hash(data['password'], method='pbkdf2:sha256')
-    new_user = User(
-        name=data.get('name'),
-        email=data.get('email'),
-        password=hashed_password,
-        role=requested_role,
-        organization_id=organization_id,
-        department=data.get('department'),
-        designation=data.get('designation'),
-        status='Active',
-        is_verified=True # Admin created users are trusted
-    )
-    db.session.add(new_user)
-    db.session.commit()
-
-    log_activity(current_user.id, f"Created user '{new_user.name}' with role '{new_user.role}'", 'User', new_user.id)
-    return jsonify({'message': f'User ({requested_role}) created successfully', 'user': user_to_dict(new_user)}), 201
-
-@auth_bp.route('/users', methods=['GET'])
-@token_required
-def get_all_users(current_user):
-    if current_user.role not in ['Super Admin', 'Admin', 'HR', 'Manager']:
-        return jsonify({'message': 'Permission denied'}), 403
-    
-    query = User.query
-    if current_user.role == 'Super Admin':
-        pass  # No filter, sees all
-    elif current_user.role == 'Admin':
-        query = query.filter_by(organization_id=current_user.organization_id)
-    elif current_user.role in ['HR', 'Manager']:
-        # HR/Manager see users in their own department within the same organization
-        if not current_user.department:
-             return jsonify([]) # Return empty list if manager has no department
-        query = query.filter_by(
-            organization_id=current_user.organization_id,
-            department=current_user.department
-        )
-    
-    users = query.order_by(User.id).all()
-    return jsonify([user_to_dict(u) for u in users])
+    if record['otp'] == otp and datetime.datetime.utcnow() <= record['expiry']:
+        # OTP is valid, update the password
+        user.password = generate_password_hash(new_password)
+        db.session.commit()
+        
+        # Clear the used OTP from memory
+        del password_reset_storage[email]
+        
+        return jsonify({"message": "Password reset successfully"}), 200
+        
+    return jsonify({"error": "Invalid or expired OTP"}), 400

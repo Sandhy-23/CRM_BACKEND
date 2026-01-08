@@ -56,9 +56,12 @@ def get_lead_query(current_user):
 @token_required
 def create_lead(current_user):
     data = request.get_json()
+    if not data:
+        return jsonify({'message': 'Invalid JSON data'}), 400
     
     # Mandatory Fields
     if not data.get('company') or not data.get('last_name'):
+        print(f"❌ Validation Error (Create Lead): Missing company or last_name. Received: {data}")
         return jsonify({'message': 'Company and Last Name are mandatory'}), 400
 
     # Unique Email Check
@@ -75,7 +78,7 @@ def create_lead(current_user):
         source=data.get('source'),
         status=data.get('status', 'New'),
         owner_id=current_user.id, # Auto-assign to creator
-        company_id=current_user.organization_id if current_user.role != 'Super Admin' else 1,
+        company_id=current_user.organization_id, # Use user's org ID
         created_at=datetime.utcnow()
     )
     

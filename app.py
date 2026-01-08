@@ -1,16 +1,20 @@
 from flask import Flask, jsonify
-from extensions import db
+from extensions import db, jwt
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 from routes import auth_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp, lead_bp, deal_bp
 from routes.chart_routes import chart_bp
 from config import Config
 import models
+from dotenv import load_dotenv
+load_dotenv()
+
 
 app = Flask(__name__)
 app.config.from_object(Config)
 
 db.init_app(app)
+jwt.init_app(app)
 
 app.register_blueprint(auth_bp, url_prefix="/auth")
 app.register_blueprint(website_bp) # No prefix for main website
@@ -25,6 +29,7 @@ app.register_blueprint(deal_bp)
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):
     db.session.rollback()
+    print(f"❌ Database Integrity Error: {e.orig}")
     return jsonify({"error": "Database integrity error", "message": str(e.orig)}), 400
 
 @app.errorhandler(405)
@@ -61,6 +66,95 @@ with app.app_context():
     except Exception as e:
         print(f"Migration Error: {e}")
     
+    # --- Auto-Migration for Leads & Deals (Fix for missing columns) ---
+    try:
+        with db.engine.connect() as connection:
+            # 1. Fix Leads Table
+            try:
+                connection.execute(text("SELECT first_name FROM leads LIMIT 1"))
+            except Exception:
+                print("⚠️ Column 'first_name' not found in leads. Applying migrations...")
+                lead_cols = [
+                    ("first_name", "VARCHAR(50)"),
+                    ("last_name", "VARCHAR(50)"),
+                    ("company", "VARCHAR(100)"),
+                    ("mobile", "VARCHAR(20)"),
+                    ("lead_source", "VARCHAR(50)"),
+                    ("lead_status", "VARCHAR(50) DEFAULT 'New'"),
+                    ("company_id", "INTEGER"),
+                    ("owner_id", "INTEGER"),
+                    ("assigned_to", "INTEGER"),
+                    ("created_at", "DATETIME")
+                ]
+                for col_name, col_type in lead_cols:
+                    try:
+                        connection.execute(text(f"ALTER TABLE leads ADD COLUMN {col_name} {col_type}"))
+                        print(f"✔ Added column: {col_name} to leads")
+                    except Exception:
+                        pass
+                connection.commit()
+
+            # 2. Fix Deals Table
+            try:
+                connection.execute(text("SELECT deal_name FROM deals LIMIT 1"))
+            except Exception:
+                print("⚠️ Column 'deal_name' not found in deals. Applying migrations...")
+                deal_cols = [
+                    ("deal_name", "VARCHAR(100)"),
+                    ("amount", "FLOAT"),
+                    ("stage", "VARCHAR(50)"),
+                    ("probability", "INTEGER"),
+                    ("owner_id", "INTEGER"),
+                    ("company_id", "INTEGER"),
+                    ("created_at", "DATETIME"),
+                    ("closed_at", "DATETIME"),
+                    ("status", "VARCHAR(50)"),
+                    ("account_id", "INTEGER"),
+                    ("contact_id", "INTEGER")
+                ]
+                for col_name, col_type in deal_cols:
+                    try:
+                        connection.execute(text(f"ALTER TABLE deals ADD COLUMN {col_name} {col_type}"))
+                        print(f"✔ Added column: {col_name} to deals")
+                    except Exception:
+                        pass
+                connection.commit()
+
+            # 2.1 Fix Deals Table (Ensure account_id exists for Lead Conversion)
+            try:
+                connection.execute(text("SELECT account_id FROM deals LIMIT 1"))
+            except Exception:
+                print("⚠️ Column 'account_id' not found in deals. Adding it...")
+                try:
+                    connection.execute(text("ALTER TABLE deals ADD COLUMN account_id INTEGER"))
+                    connection.execute(text("ALTER TABLE deals ADD COLUMN contact_id INTEGER"))
+                    print("✔ Added columns: account_id, contact_id to deals")
+                    connection.commit()
+                except Exception:
+                    pass
+
+            # 3. Fix Leads Table (Drop 'name' column to resolve TypeError/IntegrityError conflict)
+            try:
+                connection.execute(text("SELECT name FROM leads LIMIT 1"))
+                print("⚠️ Column 'name' detected in leads table. Dropping it to match Lead model...")
+                connection.execute(text("ALTER TABLE leads DROP COLUMN name"))
+                print("✔ Dropped column: name from leads")
+            except Exception:
+                pass # Column likely doesn't exist, which is correct
+
+            # 4. Fix Deals Table (Drop 'title' column to resolve TypeError/IntegrityError conflict)
+            try:
+                connection.execute(text("SELECT title FROM deals LIMIT 1"))
+                print("ℹ️ Maintenance: Column 'title' detected in deals table. Dropping it to match Deal model...")
+                connection.execute(text("ALTER TABLE deals DROP COLUMN title"))
+                print("✔ Dropped column: title from deals")
+            except Exception:
+                pass 
+
+                print("✅ Leads & Deals table migration complete.")
+    except Exception as e:
+        print(f"CRM Migration Error: {e}")
+
     # --- Seeding Script ---
     if not models.Plan.query.first():
         print("Seeding database with default plans and features...")

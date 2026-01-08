@@ -15,6 +15,12 @@ def create_plan(current_user):
         return jsonify({"message": "Unauthorized"}), 403
     
     data = request.get_json()
+    if not data or not data.get("name"):
+        return jsonify({"message": "Plan name is required"}), 400
+
+    if Plan.query.filter_by(name=data.get("name")).first():
+        return jsonify({"message": "Plan with this name already exists"}), 409
+
     new_plan = Plan(
         name=data.get("name"),
         price=data.get("price"),
