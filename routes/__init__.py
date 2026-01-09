@@ -7,3 +7,4 @@ from .chart_routes import chart_bp
 from .contact_routes import contact_bp
 from .lead_routes import lead_bp
 from .deal_routes import deal_bp
+from .note_file_routes import note_file_bp
