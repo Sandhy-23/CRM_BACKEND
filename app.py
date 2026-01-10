@@ -2,7 +2,7 @@ from flask import Flask, jsonify
 from extensions import db, jwt
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
-from routes import auth_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp, lead_bp, deal_bp, note_file_bp
+from routes import auth_bp, social_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp, lead_bp, deal_bp, note_file_bp
 from routes.chart_routes import chart_bp
 from config import Config
 import models
@@ -17,6 +17,7 @@ db.init_app(app)
 jwt.init_app(app)
 
 app.register_blueprint(auth_bp, url_prefix="/auth")
+app.register_blueprint(social_bp, url_prefix="/api/auth")
 app.register_blueprint(website_bp) # No prefix for main website
 app.register_blueprint(dashboard_bp, url_prefix="/api")
 app.register_blueprint(plan_bp, url_prefix="/api")
@@ -63,6 +64,24 @@ with app.app_context():
                     except Exception:
                         pass # Column might already exist
                 connection.commit()
+
+            # Check if provider column exists (Social Auth)
+            try:
+                connection.execute(text("SELECT provider FROM users LIMIT 1"))
+            except Exception:
+                print("⚠️ Column 'provider' not found. Applying migrations...")
+                provider_cols = [
+                    ("provider", "VARCHAR(20) DEFAULT 'email'"),
+                    ("provider_id", "VARCHAR(100)")
+                ]
+                for col_name, col_type in provider_cols:
+                    try:
+                        connection.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
+                        print(f"✔ Added column: {col_name}")
+                    except Exception:
+                        pass
+                connection.commit()
+
                 print("✅ User table migration complete.")
     except Exception as e:
         print(f"Migration Error: {e}")
@@ -152,7 +171,27 @@ with app.app_context():
             except Exception:
                 pass 
 
-                print("✅ Leads & Deals table migration complete.")
+            # 5. Fix Contacts Table (New Requirements)
+            try:
+                connection.execute(text("SELECT first_name FROM contacts LIMIT 1"))
+            except Exception:
+                print("⚠️ Column 'first_name' not found in contacts. Applying migrations...")
+                contact_cols = [
+                    ("first_name", "VARCHAR(50)"),
+                    ("last_name", "VARCHAR(50)"),
+                    ("mobile", "VARCHAR(20)"),
+                    ("source", "VARCHAR(50)"),
+                    ("owner_id", "INTEGER")
+                ]
+                for col_name, col_type in contact_cols:
+                    try:
+                        connection.execute(text(f"ALTER TABLE contacts ADD COLUMN {col_name} {col_type}"))
+                        print(f"✔ Added column: {col_name} to contacts")
+                    except Exception:
+                        pass
+                connection.commit()
+
+            print("✅ Database migration complete.")
     except Exception as e:
         print(f"CRM Migration Error: {e}")
 

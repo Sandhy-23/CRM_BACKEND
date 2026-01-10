@@ -22,6 +22,8 @@ class User(db.Model):
     otp_expiry = db.Column(db.DateTime)
     reset_token = db.Column(db.String(100))
     reset_token_expiry = db.Column(db.DateTime)
+    provider = db.Column(db.String(20), default='email') # email, google, facebook
+    provider_id = db.Column(db.String(100))
 
 class LoginHistory(db.Model):
     __tablename__ = "login_history"

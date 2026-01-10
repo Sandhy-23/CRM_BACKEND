@@ -96,6 +96,21 @@ def migrate_db():
                 except Exception as e:
                     print(f"contacts.{col_name} check: {e}")
 
+            # 13. Fix Contacts Table (Requirements Update)
+            contact_req_cols = [
+                ("first_name", "VARCHAR(50)"),
+                ("last_name", "VARCHAR(50)"),
+                ("mobile", "VARCHAR(20)"),
+                ("source", "VARCHAR(50)"),
+                ("owner_id", "INTEGER")
+            ]
+            for col_name, col_type in contact_req_cols:
+                try:
+                    connection.execute(text(f"ALTER TABLE contacts ADD COLUMN {col_name} {col_type}"))
+                    print(f"Added '{col_name}' to contacts table.")
+                except Exception as e:
+                    print(f"contacts.{col_name} check: {e}")
+
             # 10. Fix Leads Table (Zoho Fields)
             lead_cols = [
                 ("first_name", "VARCHAR(50)"),
@@ -134,10 +149,12 @@ def migrate_db():
             # 12. Fix Users Table (Auth & OTP) - Redundant if app.py auto-migrates, but good for safety
             auth_cols = [
                 ("is_verified", "BOOLEAN DEFAULT 0"),
-                ("otp_code", "VARCHAR(6)"),
+                ("otp", "VARCHAR(6)"),
                 ("otp_expiry", "DATETIME"),
                 ("reset_token", "VARCHAR(100)"),
-                ("reset_token_expiry", "DATETIME")
+                ("reset_token_expiry", "DATETIME"),
+                ("provider", "VARCHAR(20) DEFAULT 'email'"),
+                ("provider_id", "VARCHAR(100)")
             ]
             for col_name, col_type in auth_cols:
                 try:

@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app
 from extensions import db
 from models.user import User, LoginHistory
+from models.organization import Organization
 from flask_jwt_extended import create_access_token, verify_jwt_in_request, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
 import datetime
@@ -14,6 +15,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
 from dotenv import load_dotenv, find_dotenv
+import requests
 
 # Load environment variables from .env file
 basedir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
@@ -30,6 +32,7 @@ else:
     load_dotenv(find_dotenv(), override=True)
 
 auth_bp = Blueprint('auth', __name__)
+social_bp = Blueprint('social_auth', __name__)
 
 # --- In-Memory Storage (Replaces DB Storage for OTPs) ---
 signup_storage = {} # { email: { 'otp': str, 'name': str, 'password_hash': str, 'expiry': datetime } }
@@ -105,12 +108,14 @@ def token_required(f):
 @auth_bp.route('/signup', methods=['POST'])
 def signup():
     data = request.get_json()
-    name = data.get('name')
     email = data.get('email')
     password = data.get('password')
 
     if not email or not password:
-        return jsonify({"error": "Email and password are required"}), 400
+        return jsonify({"error": "Email and Password are required"}), 400
+
+    # Default name to email prefix if not provided
+    name = data.get('name') or email.split('@')[0]
 
     # 2. Validate Email Format
     if not validate_email_format(email):
@@ -121,26 +126,26 @@ def signup():
     if existing_user:
         return jsonify({"error": "Email already registered. Please use the Login endpoint."}), 409
 
-    # Generate OTP
-    otp = generate_otp()
-    expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=2)
+    # --- DIRECT SIGNUP (No OTP) ---
+    # Determine Role: First user = Super Admin, others = User (default)
+    role = "Super Admin" if User.query.count() == 0 else "User"
 
-    # Store in Memory (Temporary)
-    signup_storage[email] = {
-        'otp': otp,
-        'name': name,
-        'password_hash': generate_password_hash(password),
-        'expiry': expiry
-    }
+    new_user = User(
+        name=name,
+        email=email,
+        password=generate_password_hash(password),
+        role=role,
+        is_verified=True, # Auto-verify
+        status="Active"
+    )
 
-    # Send OTP via SMTP
-    email_sent = send_email(email, "Verify your account", f"Your OTP is {otp}")
-    if email_sent:
-        return jsonify({
-            "message": "OTP sent to your email"
-        }), 200
-    else:
-        return jsonify({"error": "Failed to send OTP. Please check server logs."}), 500
+    try:
+        db.session.add(new_user)
+        db.session.commit()
+        return jsonify({"message": "User registered successfully. You can now login."}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 @auth_bp.route('/verify-otp', methods=['POST'])
 def verify_otp():
@@ -224,17 +229,132 @@ def login():
     base_url = os.environ.get('FRONTEND_BASE_URL', 'https://rvhcrm.com')
     
     # Sanitize username (lowercase, remove special chars)
-    username_slug = re.sub(r'[^a-zA-Z0-9]', '', user.name.lower()) if user.name else "user"
+    username_slug = re.sub(r'[^a-zA-Z0-9]', '', user.email.lower()) if user.email else "user"
 
-    # Map Role to URL segment
-    role_slug = user.role.lower().replace(" ", "-")
-    if role_slug == "employee":
-        role_slug = "user"
-
-    redirect_url = f"{base_url.rstrip('/')}/{username_slug}/{role_slug}/dashboard"
+    redirect_url = f"{base_url.rstrip('/')}/{username_slug}/dashboard"
 
     # 4. Return the mandatory response
     return jsonify({
+        "token": access_token,
+        "role": user.role,
+        "redirect_url": redirect_url
+    }), 200
+
+@social_bp.route('/google', methods=['POST'])
+def google_login():
+    data = request.get_json()
+    token = data.get('google_token')
+    
+    if not token:
+        return jsonify({"message": "Google token is required"}), 400
+        
+    # 1. Verify Token with Google
+    google_url = f"https://oauth2.googleapis.com/tokeninfo?id_token={token}"
+    response = requests.get(google_url)
+    
+    if response.status_code != 200:
+        return jsonify({"message": "Invalid Google Token"}), 401
+        
+    google_data = response.json()
+    email = google_data.get('email')
+    name = google_data.get('name')
+    provider_id = google_data.get('sub')
+    
+    return handle_oauth_login(email, name, 'google', provider_id)
+
+@social_bp.route('/facebook', methods=['POST'])
+def facebook_login():
+    data = request.get_json()
+    token = data.get('facebook_token')
+    
+    if not token:
+        return jsonify({"message": "Facebook token is required"}), 400
+        
+    # 1. Verify Token with Facebook
+    # Note: Frontend usually sends Access Token
+    fb_url = f"https://graph.facebook.com/me?access_token={token}&fields=id,name,email"
+    response = requests.get(fb_url)
+    
+    if response.status_code != 200:
+        return jsonify({"message": "Invalid Facebook Token"}), 401
+        
+    fb_data = response.json()
+    email = fb_data.get('email')
+    name = fb_data.get('name')
+    provider_id = fb_data.get('id')
+    
+    # Fallback if email is missing (Facebook sometimes doesn't return it)
+    if not email:
+        email = f"{provider_id}@facebook.com"
+        
+    return handle_oauth_login(email, name, 'facebook', provider_id)
+
+def handle_oauth_login(email, name, provider, provider_id):
+    """Shared logic for OAuth providers"""
+    
+    # 1. Check if user exists
+    user = User.query.filter_by(email=email).first()
+    
+    if user:
+        # Update provider info if not set
+        if not user.provider or user.provider == 'email':
+            user.provider = provider
+            user.provider_id = provider_id
+            db.session.commit()
+    else:
+        # 2. Create New User
+        # Determine Role: First user = Super Admin
+        role = "Super Admin" if User.query.count() == 0 else "User"
+        
+        # Create Organization for the user (Requirement: Create or attach company_id)
+        # For simplicity, we create a new organization for every new OAuth user 
+        # unless logic dictates otherwise.
+        new_org = Organization(name=f"{name}'s Organization", subscription_plan="Free")
+        db.session.add(new_org)
+        db.session.flush() # Get ID
+        
+        user = User(
+            name=name,
+            email=email,
+            password=generate_password_hash(generate_otp()), # Random password
+            role=role,
+            is_verified=True,
+            status="Active",
+            provider=provider,
+            provider_id=provider_id,
+            organization_id=new_org.id
+        )
+        db.session.add(user)
+        db.session.commit()
+        
+    # 3. Generate Token
+    # Requirement: Token must include user_id, role, company_id
+    access_token = create_access_token(
+        identity=str(user.id), 
+        additional_claims={
+            "email": user.email, 
+            "role": user.role,
+            "company_id": user.organization_id
+        }
+    )
+    
+    # 4. Log Activity
+    log = LoginHistory(
+        user_id=user.id, 
+        login_time=datetime.datetime.utcnow(), 
+        ip_address=request.remote_addr, 
+        status="Success"
+    )
+    db.session.add(log)
+    db.session.commit()
+    
+    # 5. Generate Redirect URL
+    base_url = os.environ.get('FRONTEND_BASE_URL', 'https://rvhcrm.com')
+    username_slug = re.sub(r'[^a-zA-Z0-9]', '', user.email.lower()) if user.email else "user"
+    redirect_url = f"{base_url.rstrip('/')}/{username_slug}/dashboard"
+    
+    return jsonify({
+        "message": "Login successful",
         "token": access_token,
         "role": user.role,
         "redirect_url": redirect_url

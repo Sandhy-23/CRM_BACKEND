@@ -62,16 +62,26 @@ def get_contact_query(current_user):
 def create_contact(current_user):
     data = request.get_json()
     
-    if not data.get('name') or not data.get('email'):
-        return jsonify({'message': 'Name and Email are required'}), 400
+    if not data.get('first_name') or not data.get('email'):
+        return jsonify({'message': 'First Name and Email are required'}), 400
+
+    # Unique Email Check (Per Company)
+    existing_contact = Contact.query.filter_by(email=data.get('email'), organization_id=current_user.organization_id).first()
+    if existing_contact:
+        return jsonify({'message': 'Contact with this email already exists in your company'}), 409
 
     new_contact = Contact(
-        name=data.get('name'),
+        first_name=data.get('first_name'),
+        last_name=data.get('last_name'),
+        name=f"{data.get('first_name')} {data.get('last_name') or ''}".strip(),
         email=data.get('email'),
         phone=data.get('phone'),
+        mobile=data.get('mobile'),
         company=data.get('company'),
-        status=data.get('status', 'Lead'),
-        assigned_to=data.get('assigned_to'),
+        status=data.get('status', 'Active'),
+        source=data.get('source', 'Manual'),
+        assigned_to=data.get('assigned_to', current_user.id), # Default to creator if not assigned
+        owner_id=current_user.id,
         created_by=current_user.id,
         organization_id=current_user.organization_id if current_user.role != 'Super Admin' else data.get('organization_id', 1)
     )
@@ -113,16 +123,24 @@ def update_contact(current_user, contact_id):
     
     data = request.get_json()
     
-    if 'name' in data: contact.name = data['name']
+    if 'first_name' in data: contact.first_name = data['first_name']
+    if 'last_name' in data: contact.last_name = data['last_name']
+    # Update full name composite
+    if 'first_name' in data or 'last_name' in data:
+        contact.name = f"{contact.first_name or ''} {contact.last_name or ''}".strip()
+        
     if 'email' in data: contact.email = data['email']
     if 'phone' in data: contact.phone = data['phone']
+    if 'mobile' in data: contact.mobile = data['mobile']
     if 'company' in data: contact.company = data['company']
     if 'status' in data: contact.status = data['status']
+    if 'source' in data: contact.source = data['source']
     if 'assigned_to' in data: contact.assigned_to = data['assigned_to']
 
     db.session.commit()
     
     log_activity(current_user.id, f"Updated contact: {contact.name}", "Contact", contact.id)
+    send_email(contact.email, "Profile Updated", "Your contact details have been updated.")
     return jsonify({'message': 'Contact updated successfully', 'contact': contact.to_dict()}), 200
 
 @contact_bp.route('/api/contacts/<int:contact_id>', methods=['DELETE'])
@@ -137,7 +155,8 @@ def delete_contact(current_user, contact_id):
     if not contact:
         return jsonify({'message': 'Contact not found'}), 404
         
-    db.session.delete(contact)
+    # Soft Delete
+    contact.status = 'Inactive'
     db.session.commit()
     
     log_activity(current_user.id, f"Deleted contact {contact_id}", "Contact", contact_id)

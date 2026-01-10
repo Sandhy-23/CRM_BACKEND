@@ -887,6 +887,422 @@
 					"response": []
 				}
 			]
+		},
+		{
+			"name": "8. Contacts",
+			"item": [
+				{
+					"name": "1. Create Contact",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"first_name\": \"Jane\",\n    \"last_name\": \"Doe\",\n    \"email\": \"jane.doe@company.com\",\n    \"phone\": \"1234567890\",\n    \"mobile\": \"0987654321\",\n    \"company\": \"Tech Corp\",\n    \"source\": \"Website\",\n    \"status\": \"Active\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/contacts",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"contacts"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "2. Get All Contacts",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/contacts",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"contacts"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "3. Get Contact Profile",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/contacts/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"contacts",
+								"1"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "4. Update Contact",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"first_name\": \"Jane\",\n    \"last_name\": \"Smith\",\n    \"status\": \"Active\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/contacts/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"contacts",
+								"1"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "5. Delete Contact (Soft)",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/contacts/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"contacts",
+								"1"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "9. Notes",
+			"item": [
+				{
+					"name": "Create Note",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"entity_type\": \"lead\",\n    \"entity_id\": 1,\n    \"note_text\": \"Client is interested in the premium plan.\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/notes",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "notes" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Notes",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/notes?entity_type=lead&entity_id=1",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "notes" ],
+							"query": [
+								{ "key": "entity_type", "value": "lead" },
+								{ "key": "entity_id", "value": "1" }
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Note",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/notes/1",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "notes", "1" ]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "10. Files",
+			"item": [
+				{
+					"name": "Upload File",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{ "key": "file", "type": "file", "src": [] },
+								{ "key": "entity_type", "value": "lead", "type": "text" },
+								{ "key": "entity_id", "value": "1", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/files",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "files" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Files",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/files?entity_type=lead&entity_id=1",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "files" ],
+							"query": [
+								{ "key": "entity_type", "value": "lead" },
+								{ "key": "entity_id", "value": "1" }
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Download File",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/files/1/download",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "files", "1", "download" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete File",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/files/1",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "files", "1" ]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "11. Social Auth",
+			"item": [
+				{
+					"name": "Google Login",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"token\": \"YOUR_VALID_GOOGLE_ID_TOKEN\"\n}",
+							"raw": "{\n    \"google_token\": \"YOUR_VALID_GOOGLE_ID_TOKEN\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/google",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"google"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Facebook Login",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"token\": \"YOUR_VALID_FACEBOOK_ACCESS_TOKEN\"\n}",
+							"raw": "{\n    \"facebook_token\": \"YOUR_VALID_FACEBOOK_ACCESS_TOKEN\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/facebook",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"facebook"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://127.0.0.1:5000"
+		},
+		{
+			"key": "token",
+			"value": ""
 		}
 	]
 }
