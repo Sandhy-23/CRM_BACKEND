@@ -34,20 +34,20 @@ def get_lead_query(current_user):
     query = query.filter_by(company_id=current_user.organization_id)
 
     # 1. Super Admin: View All in Org
-    if current_user.role == 'Super Admin':
+    if current_user.role == 'SUPER_ADMIN':
         return query
 
     # 2. Admin: View Company Leads
-    if current_user.role == 'Admin':
+    if current_user.role == 'ADMIN':
         return query
     
     # 3. Manager: View Team Leads (Same Dept)
-    if current_user.role == 'Manager':
+    if current_user.role == 'MANAGER':
         team_ids = [u.id for u in User.query.filter_by(organization_id=current_user.organization_id, department=current_user.department).all()]
         return query.filter(Lead.owner_id.in_(team_ids))
     
     # 4. Employee: View Assigned Leads Only
-    if current_user.role == 'Employee':
+    if current_user.role == 'EMPLOYEE':
         return query.filter_by(owner_id=current_user.id)
     
     return query.filter_by(id=None) # Fallback

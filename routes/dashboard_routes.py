@@ -17,7 +17,7 @@ dashboard_bp = Blueprint("dashboard", __name__)
 @dashboard_bp.route("/<org_name>/superadmin/dashboard", methods=["GET"])
 @token_required
 def super_admin_dashboard(current_user, org_name):
-    if current_user.role != "Super Admin":
+    if current_user.role != "SUPER_ADMIN":
         return jsonify({"message": f"Unauthorized. You are logged in as '{current_user.role}', but this route requires 'Super Admin'."}), 403
     
     # 1. Global Metrics (Aggregated from DB)
@@ -46,7 +46,7 @@ def super_admin_dashboard(current_user, org_name):
     } for user in all_users]
 
     return jsonify({
-        "role": "Super Admin",
+        "role": "SUPER_ADMIN",
         "metrics": {
             "total_users": total_users,
             "organization": current_user.organization.name if current_user.organization else "N/A"
@@ -59,7 +59,7 @@ def super_admin_dashboard(current_user, org_name):
 @dashboard_bp.route("/<org_name>/admin/dashboard", methods=["GET"])
 @token_required
 def admin_dashboard(current_user, org_name):
-    if current_user.role not in ["Admin", "Super Admin"]:
+    if current_user.role not in ["ADMIN", "SUPER_ADMIN"]:
         return jsonify({"message": "Unauthorized"}), 403
     
     # Admin sees users in their Organization (or all if logic dictates, here we show Org view)
@@ -90,7 +90,7 @@ def admin_dashboard(current_user, org_name):
 @dashboard_bp.route("/<org_name>/hr/dashboard", methods=["GET"])
 @token_required
 def hr_dashboard(current_user, org_name):
-    if current_user.role not in ["HR", "Admin", "Super Admin"]:
+    if current_user.role not in ["HR", "ADMIN", "SUPER_ADMIN"]:
         return jsonify({"message": "Unauthorized"}), 403
     
     # HR sees only users in their own Organization
@@ -120,7 +120,7 @@ def hr_dashboard(current_user, org_name):
 @dashboard_bp.route("/<org_name>/manager/dashboard", methods=["GET"])
 @token_required
 def manager_dashboard(current_user, org_name):
-    if current_user.role not in ["Manager", "Admin", "Super Admin"]:
+    if current_user.role not in ["MANAGER", "ADMIN", "SUPER_ADMIN"]:
         return jsonify({"message": "Unauthorized"}), 403
     
     # Manager sees employees in their own department within the org
@@ -198,7 +198,7 @@ def get_kpis(current_user):
     Returns KPI metrics for the dashboard.
     Query Param: ?period=today|month|year (default: all)
     """
-    if current_user.role != "Super Admin":
+    if current_user.role != "SUPER_ADMIN":
         return jsonify({"message": "Unauthorized. KPI data is visible only to Super Admin."}), 403
 
     # 1. Determine Date Range
@@ -254,11 +254,11 @@ def create_employee(current_user):
     Create Employee.
     Allowed roles: Super Admin, Admin, HR, Manager.
     """
-    if current_user.role not in ["Super Admin", "Admin", "HR", "Manager"]:
+    if current_user.role not in ["SUPER_ADMIN", "ADMIN", "HR", "MANAGER"]:
         return jsonify({"message": "Unauthorized. Only Super Admin, Admin, HR, or Manager can create users."}), 403
 
     data = request.get_json()
-    email = data.get("email")
+    email = data.get("email", "").strip().lower()
     
     if User.query.filter_by(email=email).first():
         return jsonify({"message": "Email already exists"}), 400
@@ -272,26 +272,26 @@ def create_employee(current_user):
             pass
 
     # Normalize Role
-    role = data.get("role", "User")
-    if role.upper() == 'SUPER ADMIN': role = 'Super Admin'
-    if role.upper() == 'ADMIN': role = 'Admin'
+    role = data.get("role", "USER")
+    if role.upper() == 'SUPER ADMIN': role = 'SUPER_ADMIN'
+    if role.upper() == 'ADMIN': role = 'ADMIN'
     if role.upper() == 'HR': role = 'HR'
-    if role.upper() == 'MANAGER': role = 'Manager'
-    if role.upper() == 'EMPLOYEE': role = 'Employee'
+    if role.upper() == 'MANAGER': role = 'MANAGER'
+    if role.upper() == 'EMPLOYEE': role = 'EMPLOYEE'
 
     # Role Hierarchy Check
-    role_levels = {"Super Admin": 4, "Admin": 3, "Manager": 2, "HR": 2, "Employee": 1, "User": 1}
+    role_levels = {"SUPER_ADMIN": 4, "ADMIN": 3, "MANAGER": 2, "HR": 2, "EMPLOYEE": 1, "USER": 1}
     
     creator_level = role_levels.get(current_user.role, 0)
     target_level = role_levels.get(role, 0)
 
     # Prevent creation of users with equal or higher privileges (except Super Admin)
-    if current_user.role != "Super Admin" and target_level >= creator_level:
+    if current_user.role != "SUPER_ADMIN" and target_level >= creator_level:
         return jsonify({"message": f"Unauthorized. You cannot create a user with role '{role}'."}), 403
 
     # Organization Logic
     org_id = current_user.organization_id
-    if current_user.role == "Super Admin":
+    if current_user.role == "SUPER_ADMIN":
         org_id = data.get("organization_id") # Super Admin must specify org or logic needs to handle it
 
     new_user = User(
@@ -312,7 +312,7 @@ def create_employee(current_user):
     db.session.commit()
 
     # Email Notification for new Admin
-    if role == 'Admin':
+    if role == 'ADMIN':
         send_email(email, "You have been made an Admin", "The Super Admin has created an Admin account for you. You can now login to the CRM.")
 
     return jsonify({"message": "Employee created successfully", "id": new_user.id}), 201
@@ -329,11 +329,11 @@ def get_employees(current_user):
     """
     query = User.query
 
-    if current_user.role in ["Super Admin", "Admin"]:
+    if current_user.role in ["SUPER_ADMIN", "ADMIN"]:
         pass # No filter
     elif current_user.role == "HR":
         query = query.filter_by(organization_id=current_user.organization_id)
-    elif current_user.role == "Manager":
+    elif current_user.role == "MANAGER":
         # Manager sees employees in their own department within the org
         query = query.filter_by(organization_id=current_user.organization_id, department=current_user.department)
     else:
@@ -372,8 +372,8 @@ def update_employee(current_user, user_id):
 
     # Authorization Check
     is_self = (current_user.id == user_id)
-    is_admin_hr = (current_user.role in ["Admin", "HR"] and current_user.organization_id == user.organization_id)
-    is_super = (current_user.role == "Super Admin")
+    is_admin_hr = (current_user.role in ["ADMIN", "HR"] and current_user.organization_id == user.organization_id)
+    is_super = (current_user.role == "SUPER_ADMIN")
 
     if not (is_self or is_admin_hr or is_super): 
         return jsonify({"message": "Unauthorized to update this record"}), 403
@@ -403,7 +403,7 @@ def delete_employee(current_user, user_id):
     Delete Employee.
     Allowed roles: Super Admin, Admin, HR.
     """
-    if current_user.role not in ["Super Admin", "Admin", "HR"]:
+    if current_user.role not in ["SUPER_ADMIN", "ADMIN", "HR"]:
         return jsonify({"message": "Unauthorized. Only Super Admin/Admin/HR can delete employees."}), 403
 
     user = User.query.get(user_id)
@@ -411,7 +411,7 @@ def delete_employee(current_user, user_id):
         return jsonify({"message": "User not found"}), 404
     
     # Prevent deleting users from other organizations (unless Super Admin)
-    if current_user.role != "Super Admin" and user.organization_id != current_user.organization_id:
+    if current_user.role != "SUPER_ADMIN" and user.organization_id != current_user.organization_id:
         return jsonify({"message": "Unauthorized to delete user from another organization"}), 403
 
     db.session.delete(user)
@@ -427,7 +427,7 @@ def get_team_data(current_user):
     Get Team Data.
     Access: HR, Manager
     """
-    if current_user.role not in ['HR', 'Manager', 'Admin', 'Super Admin']:
+    if current_user.role not in ['HR', 'MANAGER', 'ADMIN', 'SUPER_ADMIN']:
         return jsonify({'message': 'Permission denied'}), 403
 
     # Fetch users (excluding self)
@@ -446,7 +446,7 @@ def get_team_data(current_user):
 @dashboard_bp.route('/attendance', methods=['GET'])
 @token_required
 def get_attendance(current_user):
-    if current_user.role not in ['HR', 'Manager', 'Admin', 'Super Admin']:
+    if current_user.role not in ['HR', 'MANAGER', 'ADMIN', 'SUPER_ADMIN']:
         return jsonify({'message': 'Permission denied'}), 403
     
     records = Attendance.query.order_by(Attendance.date.desc()).all()
@@ -462,7 +462,7 @@ def get_attendance(current_user):
 @dashboard_bp.route('/activity-logs', methods=['GET'])
 @token_required
 def get_activity_logs(current_user):
-    if current_user.role not in ['HR', 'Manager', 'Admin', 'Super Admin']:
+    if current_user.role not in ['HR', 'MANAGER', 'ADMIN', 'SUPER_ADMIN']:
         return jsonify({'message': 'Permission denied'}), 403
         
     logs = ActivityLog.query.order_by(ActivityLog.timestamp.desc()).limit(50).all()
@@ -484,7 +484,7 @@ def get_my_tasks(current_user):
 @dashboard_bp.route('/dashboard/login-activity', methods=['GET'])
 @token_required
 def dashboard_login_activity(current_user):
-    if current_user.role not in ['Super Admin', 'Admin']:
+    if current_user.role not in ['SUPER_ADMIN', 'ADMIN']:
         return jsonify({"error": "Unauthorized"}), 403
         
     # Last 7 days login counts
@@ -505,9 +505,9 @@ def dashboard_task_stats(current_user):
     query = db.session.query(Task.status, func.count(Task.id)).group_by(Task.status)
     
     # If not admin, only see own tasks
-    if current_user.role not in ['Super Admin', 'Admin', 'HR']:
+    if current_user.role not in ['SUPER_ADMIN', 'ADMIN', 'HR']:
         query = query.filter(Task.assigned_to == current_user.id)
-    elif current_user.role in ['Admin', 'HR']:
+    elif current_user.role in ['ADMIN', 'HR']:
         # Filter by organization if applicable
         if current_user.organization_id:
             query = query.filter(Task.organization_id == current_user.organization_id)
@@ -522,7 +522,7 @@ def dashboard_task_stats(current_user):
 def leads_summary(current_user):
     # Reuse the RBAC logic from lead_routes if possible, or replicate simple filter
     query = Lead.query
-    if current_user.role != 'Super Admin':
+    if current_user.role != 'SUPER_ADMIN':
         query = query.filter_by(company_id=current_user.organization_id)
         
     total = query.count()
@@ -540,7 +540,7 @@ def leads_summary(current_user):
 @token_required
 def deals_pipeline(current_user):
     query = Deal.query
-    if current_user.role != 'Super Admin':
+    if current_user.role != 'SUPER_ADMIN':
         query = query.filter_by(company_id=current_user.organization_id)
         
     # Group by Stage

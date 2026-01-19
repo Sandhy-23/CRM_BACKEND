@@ -25,7 +25,7 @@ def log_activity(user_id, action, entity_type=None, entity_id=None):
 @quick_actions_bp.route('/quick-actions/task', methods=['POST'])
 @token_required
 def quick_add_task(current_user):
-    if current_user.role not in ['Admin', 'Super Admin']:
+    if current_user.role not in ['ADMIN', 'SUPER_ADMIN']:
         return jsonify({'message': 'Permission denied. Admin access required.'}), 403
     
     data = request.get_json()
@@ -51,7 +51,7 @@ def quick_add_task(current_user):
 @quick_actions_bp.route('/quick-actions/lead/<int:lead_id>/assign', methods=['PUT'])
 @token_required
 def assign_lead(current_user, lead_id):
-    if current_user.role not in ['Admin', 'Super Admin']:
+    if current_user.role not in ['ADMIN', 'SUPER_ADMIN']:
         return jsonify({'message': 'Permission denied. Admin access required.'}), 403
     
     data = request.get_json()
@@ -71,7 +71,7 @@ def assign_lead(current_user, lead_id):
 @quick_actions_bp.route('/quick-actions/note', methods=['POST'])
 @token_required
 def add_note(current_user):
-    allowed_roles = ['Admin', 'Super Admin', 'HR', 'Manager']
+    allowed_roles = ['ADMIN', 'SUPER_ADMIN', 'HR', 'MANAGER']
     if current_user.role not in allowed_roles:
         return jsonify({'message': 'Permission denied.'}), 403
         
@@ -99,7 +99,7 @@ def add_note(current_user):
 @quick_actions_bp.route('/quick-actions/user/<int:user_id>/status', methods=['PUT'])
 @token_required
 def change_user_status(current_user, user_id):
-    allowed_roles = ['Admin', 'Super Admin', 'HR', 'Manager']
+    allowed_roles = ['ADMIN', 'SUPER_ADMIN', 'HR', 'MANAGER']
     if current_user.role not in allowed_roles:
         return jsonify({'message': 'Permission denied.'}), 403
         

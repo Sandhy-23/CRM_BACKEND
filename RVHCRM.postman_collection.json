@@ -1293,6 +1293,138 @@
 					"response": []
 				}
 			]
+		},
+		{
+			"name": "12. Import & Export",
+			"item": [
+				{
+					"name": "Import Contacts",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": [],
+									"description": "Select your contacts.csv or contacts.xlsx file"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/import/contacts",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"import",
+								"contacts"
+							]
+						},
+						"description": "Upload a CSV or XLSX file to bulk import contacts. Required columns: first_name, email."
+					},
+					"response": []
+				},
+				{
+					"name": "Export Contacts",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/export/contacts",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"export",
+								"contacts"
+							]
+						},
+						"description": "Downloads all contacts accessible by the user's role as a CSV file."
+					},
+					"response": []
+				},
+				{
+					"name": "Import Leads",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": [],
+									"description": "Select your leads.csv or leads.xlsx file"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/import/leads",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"import",
+								"leads"
+							]
+						},
+						"description": "Upload a CSV or XLSX file to bulk import leads. Required columns: last_name, company."
+					},
+					"response": []
+				},
+				{
+					"name": "Export Leads",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/export/leads",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"export",
+								"leads"
+							]
+						},
+						"description": "Downloads all leads accessible by the user's role as a CSV file."
+					},
+					"response": []
+				}
+			],
+			"description": "APIs for bulk data import and export."
 		}
 	],
 	"variable": [

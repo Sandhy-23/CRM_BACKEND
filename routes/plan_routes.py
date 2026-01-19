@@ -11,7 +11,7 @@ plan_bp = Blueprint("plans", __name__)
 @plan_bp.route("/plans", methods=["POST"])
 @token_required
 def create_plan(current_user):
-    if current_user.role not in ["Super Admin", "Admin"]:
+    if current_user.role not in ["SUPER_ADMIN", "ADMIN"]:
         return jsonify({"message": "Unauthorized"}), 403
     
     data = request.get_json()
@@ -34,7 +34,7 @@ def create_plan(current_user):
 @plan_bp.route("/features", methods=["POST"])
 @token_required
 def create_feature(current_user):
-    if current_user.role not in ["Super Admin", "Admin"]:
+    if current_user.role not in ["SUPER_ADMIN", "ADMIN"]:
         return jsonify({"message": "Unauthorized"}), 403
     
     data = request.get_json()
@@ -46,7 +46,7 @@ def create_feature(current_user):
 @plan_bp.route("/plans/<int:plan_id>/features", methods=["POST"])
 @token_required
 def add_feature_to_plan(current_user, plan_id):
-    if current_user.role not in ["Super Admin", "Admin"]:
+    if current_user.role not in ["SUPER_ADMIN", "ADMIN"]:
         return jsonify({"message": "Unauthorized"}), 403
 
     data = request.get_json()
@@ -67,7 +67,7 @@ def add_feature_to_plan(current_user, plan_id):
 @plan_bp.route("/organizations", methods=["POST"])
 @token_required
 def create_organization(current_user):
-    if current_user.role not in ["Super Admin", "Admin"]:
+    if current_user.role not in ["SUPER_ADMIN", "ADMIN"]:
         return jsonify({"message": "Unauthorized"}), 403
     
     data = request.get_json()
@@ -87,7 +87,7 @@ def create_organization(current_user):
 @plan_bp.route("/organizations/<int:org_id>/assign-plan", methods=["PUT"])
 @token_required
 def assign_plan(current_user, org_id):
-    if current_user.role not in ["Super Admin", "Admin"]:
+    if current_user.role not in ["SUPER_ADMIN", "ADMIN"]:
         return jsonify({"message": "Unauthorized"}), 403
 
     data = request.get_json()

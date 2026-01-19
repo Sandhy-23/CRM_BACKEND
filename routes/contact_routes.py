@@ -31,16 +31,16 @@ def get_contact_query(current_user):
     """Returns a base query for contacts filtered by role."""
     query = Contact.query
 
-    if current_user.role == 'Super Admin':
+    if current_user.role == 'SUPER_ADMIN':
         return query
     
     # Filter by Organization for everyone else
     query = query.filter_by(organization_id=current_user.organization_id)
 
-    if current_user.role in ['Admin', 'HR']:
+    if current_user.role in ['ADMIN', 'HR']:
         return query
     
-    if current_user.role == 'Manager':
+    if current_user.role == 'MANAGER':
         # Manager sees contacts assigned to their team (same department)
         team_user_ids = db.session.query(User.id).filter_by(
             organization_id=current_user.organization_id, 
@@ -50,7 +50,7 @@ def get_contact_query(current_user):
         
         return query.filter(Contact.assigned_to.in_(team_ids))
 
-    if current_user.role == 'Employee':
+    if current_user.role == 'EMPLOYEE':
         return query.filter_by(assigned_to=current_user.id)
     
     return query.filter_by(id=None) # Fallback
@@ -83,7 +83,7 @@ def create_contact(current_user):
         assigned_to=data.get('assigned_to', current_user.id), # Default to creator if not assigned
         owner_id=current_user.id,
         created_by=current_user.id,
-        organization_id=current_user.organization_id if current_user.role != 'Super Admin' else data.get('organization_id', 1)
+        organization_id=current_user.organization_id if current_user.role != 'SUPER_ADMIN' else data.get('organization_id', 1)
     )
     
     db.session.add(new_contact)
@@ -146,7 +146,7 @@ def update_contact(current_user, contact_id):
 @contact_bp.route('/api/contacts/<int:contact_id>', methods=['DELETE'])
 @token_required
 def delete_contact(current_user, contact_id):
-    if current_user.role not in ['Super Admin', 'Admin']:
+    if current_user.role not in ['SUPER_ADMIN', 'ADMIN']:
         return jsonify({'message': 'Permission denied. Only Admins can delete contacts.'}), 403
 
     query = get_contact_query(current_user)

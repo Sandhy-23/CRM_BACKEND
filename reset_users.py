@@ -3,6 +3,8 @@ from extensions import db
 from models.user import User, LoginHistory
 from models.organization import Organization
 from models.activity_log import ActivityLog
+from routes.auth_routes import OtpVerification
+from models.note_file import Note, File
 
 # Robust imports to handle missing models during development
 try: from models.task import Task
@@ -29,6 +31,9 @@ def reset_users():
             # Delete child tables first to avoid FK constraints
             safe_delete(LoginHistory)
             safe_delete(ActivityLog)
+            safe_delete(OtpVerification)
+            safe_delete(Note)
+            safe_delete(File)
             safe_delete(Attendance)
             safe_delete(Task)
             safe_delete(Contact)

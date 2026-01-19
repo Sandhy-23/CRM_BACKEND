@@ -47,14 +47,14 @@ def validate_access(user, entity_type, entity_id):
     entity_org_id = getattr(entity, org_field)
     # Note: Super Admin can access any org, but usually acts within context. 
     # Assuming Super Admin has global access, others restricted to their org.
-    if user.role != 'Super Admin' and entity_org_id != user.organization_id:
+    if user.role != 'SUPER_ADMIN' and entity_org_id != user.organization_id:
         return None, "Permission denied. You cannot access records from another organization."
 
     # 2. Role-Based Access
-    if user.role in ['Super Admin', 'Admin']:
+    if user.role in ['SUPER_ADMIN', 'ADMIN']:
         return entity, None
 
-    if user.role == 'Manager':
+    if user.role == 'MANAGER':
         # Manager sees team data (Same Department)
         owner_id = getattr(entity, owner_field)
         if owner_id == user.id:
@@ -65,7 +65,7 @@ def validate_access(user, entity_type, entity_id):
             return entity, None
         return None, "Permission denied. Record not in your team."
 
-    if user.role in ['Employee', 'User']:
+    if user.role in ['EMPLOYEE', 'USER']:
         # Employee sees only assigned records
         owner_id = getattr(entity, owner_field)
         if owner_id == user.id:
@@ -142,11 +142,11 @@ def delete_note(current_user, note_id):
         return jsonify({'error': 'Not Found', 'message': 'Note not found'}), 404
 
     # Security: Ensure user belongs to the same company as the note
-    if current_user.role != 'Super Admin' and note.company_id != current_user.organization_id:
+    if current_user.role != 'SUPER_ADMIN' and note.company_id != current_user.organization_id:
         return jsonify({'error': 'Permission denied', 'message': 'Unauthorized access'}), 403
 
     # Permission: Only Creator, Admin, or Super Admin
-    if current_user.role not in ['Super Admin', 'Admin'] and note.created_by != current_user.id:
+    if current_user.role not in ['SUPER_ADMIN', 'ADMIN'] and note.created_by != current_user.id:
         return jsonify({'error': 'Permission denied', 'message': 'Only the creator or Admin can delete this note'}), 403
 
     db.session.delete(note)
@@ -263,11 +263,11 @@ def delete_file(current_user, file_id):
         return jsonify({'error': 'Not Found', 'message': 'File record not found'}), 404
 
     # Security: Company Check
-    if current_user.role != 'Super Admin' and file_record.company_id != current_user.organization_id:
+    if current_user.role != 'SUPER_ADMIN' and file_record.company_id != current_user.organization_id:
         return jsonify({'error': 'Permission denied', 'message': 'Unauthorized access'}), 403
 
     # Permission: Only Uploader, Admin, or Super Admin
-    if current_user.role not in ['Super Admin', 'Admin'] and file_record.uploaded_by != current_user.id:
+    if current_user.role not in ['SUPER_ADMIN', 'ADMIN'] and file_record.uploaded_by != current_user.id:
         return jsonify({'error': 'Permission denied', 'message': 'Only the uploader or Admin can delete this file'}), 403
 
     # Remove from Disk

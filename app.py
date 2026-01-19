@@ -1,8 +1,10 @@
 from flask import Flask, jsonify
+from flask_cors import CORS
 from extensions import db, jwt
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 from routes import auth_bp, social_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp, lead_bp, deal_bp, note_file_bp
+from routes.import_export_routes import import_export_bp
 from routes.chart_routes import chart_bp
 from config import Config
 import models
@@ -12,6 +14,7 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config.from_object(Config)
+CORS(app)
 
 db.init_app(app)
 jwt.init_app(app)
@@ -26,6 +29,7 @@ app.register_blueprint(quick_actions_bp, url_prefix="/api")
 app.register_blueprint(contact_bp)
 app.register_blueprint(lead_bp)
 app.register_blueprint(deal_bp)
+app.register_blueprint(import_export_bp, url_prefix="/api")
 app.register_blueprint(note_file_bp)
 
 @app.errorhandler(IntegrityError)
@@ -222,4 +226,4 @@ with app.app_context():
         print("Seeding complete.")
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)

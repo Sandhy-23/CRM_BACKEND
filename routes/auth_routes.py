@@ -34,8 +34,16 @@ else:
 auth_bp = Blueprint('auth', __name__)
 social_bp = Blueprint('social_auth', __name__)
 
-# --- In-Memory Storage (Replaces DB Storage for OTPs) ---
-signup_storage = {} # { email: { 'otp': str, 'name': str, 'password_hash': str, 'expiry': datetime } }
+# --- Database Model for OTP (Persistence) ---
+class OtpVerification(db.Model):
+    __tablename__ = 'otp_verifications'
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), nullable=False)
+    otp = db.Column(db.String(6), nullable=False)
+    name = db.Column(db.String(100)) # Store temp data
+    password_hash = db.Column(db.String(200)) # Store temp data
+    expiry = db.Column(db.DateTime, nullable=False)
+
 password_reset_storage = {} # { email: { 'otp': str, 'expiry': datetime } }
 
 # --- Helper Functions ---
@@ -108,14 +116,14 @@ def token_required(f):
 @auth_bp.route('/signup', methods=['POST'])
 def signup():
     data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
+    email = data.get('email', '').strip().lower()
+    password = data.get('password', '').strip()
 
     if not email or not password:
         return jsonify({"error": "Email and Password are required"}), 400
 
     # Default name to email prefix if not provided
-    name = data.get('name') or email.split('@')[0]
+    name = data.get('name', '').strip() or email.split('@')[0]
 
     # 2. Validate Email Format
     if not validate_email_format(email):
@@ -126,35 +134,37 @@ def signup():
     if existing_user:
         return jsonify({"error": "Email already registered. Please use the Login endpoint."}), 409
 
-    # --- DIRECT SIGNUP (No OTP) ---
-    # Determine Role: First user = Super Admin, others = User (default)
-    role = "Super Admin" if User.query.count() == 0 else "User"
-
-    new_user = User(
-        name=name,
+    # --- OTP SIGNUP FLOW ---
+    otp = generate_otp()
+    expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
+    
+    # Store OTP in DB (Persistence)
+    # Remove old OTPs for this email if any
+    OtpVerification.query.filter_by(email=email).delete()
+    
+    verification_entry = OtpVerification(
         email=email,
-        password=generate_password_hash(password),
-        role=role,
-        is_verified=True, # Auto-verify
-        status="Active"
+        otp=otp,
+        name=name,
+        password_hash=generate_password_hash(password),
+        expiry=expiry
     )
-
-    try:
-        db.session.add(new_user)
-        db.session.commit()
-        return jsonify({"message": "User registered successfully. You can now login."}), 201
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+    db.session.add(verification_entry)
+    db.session.commit()
+    
+    # Send OTP (Logs to console if SMTP not set)
+    send_email(email, "Signup OTP", f"Your OTP is: {otp}")
+    
+    return jsonify({"message": "OTP sent successfully. Please verify."}), 200
 
 @auth_bp.route('/verify-otp', methods=['POST'])
 def verify_otp():
     data = request.get_json()
-    email = data.get('email')
-    otp = data.get('otp')
+    email = data.get('email', '').strip().lower()
+    otp = data.get('otp', '').strip()
 
-    # 1. Check In-Memory Storage
-    record = signup_storage.get(email)
+    # 1. Check DB Storage
+    record = OtpVerification.query.filter_by(email=email).first()
     
     if not record:
         # UX Improvement: Check if user is already in DB to give better error
@@ -163,33 +173,44 @@ def verify_otp():
         return jsonify({"error": "No pending signup found or OTP expired."}), 400
 
     # 2. Validate OTP and Expiry
-    if record['otp'] != otp:
+    if record.otp != otp:
         return jsonify({"error": "Invalid OTP"}), 400
     
-    if datetime.datetime.utcnow() > record['expiry']:
-        del signup_storage[email]
+    if datetime.datetime.utcnow() > record.expiry:
+        db.session.delete(record)
+        db.session.commit()
         return jsonify({"error": "OTP has expired"}), 400
 
     # 3. Create User in Database (Final Step)
-    # Determine Role: First user = Super Admin, others = User (default)
-    role = "Super Admin" if User.query.count() == 0 else "User"
+    # Determine Role: First user = SUPER_ADMIN, others = USER (default)
+    is_first_user = User.query.count() == 0
+    role = "SUPER_ADMIN" if is_first_user else "USER"
+
+    # Ensure Super Admin has an Organization
+    org_id = None
+    if is_first_user:
+        default_org = Organization.query.first()
+        if not default_org:
+            default_org = Organization(name="Headquarters", subscription_plan="Enterprise")
+            db.session.add(default_org)
+            db.session.flush()
+        org_id = default_org.id
 
     new_user = User(
-        name=record['name'],
+        name=record.name,
         email=email,
-        password=record['password_hash'],
+        password=record.password_hash,
         role=role,
         is_verified=True,
-        status="Active"
+        status="Active",
+        organization_id=org_id
     )
 
     try:
         db.session.add(new_user)
+        db.session.delete(record) # Remove OTP record
         db.session.commit()
         
-        # Clear memory
-        del signup_storage[email]
-
         return jsonify({"message": "Account verified successfully. You can now login."}), 200
 
     except Exception as e:
@@ -200,13 +221,14 @@ def verify_otp():
 @auth_bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
+    email = data.get('email', '').strip().lower()
+    password = data.get('password', '').strip()
 
     user = User.query.filter_by(email=email).first()
 
     # 1. Verify credentials
     if not user or not check_password_hash(user.password, password):
+        print(f"❌ Login Failed for '{email}': {'User not found' if not user else 'Password mismatch'}")
         return jsonify({"error": "Invalid email or password"}), 401
 
     # 1.1 Check if user is verified from signup
@@ -217,7 +239,11 @@ def login():
     # Generate Token (Include email and role as requested)
     access_token = create_access_token(
         identity=str(user.id), 
-        additional_claims={"email": user.email, "role": user.role}
+        additional_claims={
+            "email": user.email, 
+            "role": user.role,
+            "company_id": user.organization_id
+        }
     )
     
     # Log Activity
@@ -232,6 +258,7 @@ def login():
     username_slug = re.sub(r'[^a-zA-Z0-9]', '', user.email.lower()) if user.email else "user"
 
     redirect_url = f"{base_url.rstrip('/')}/{username_slug}/dashboard"
+    print(f"✅ Login Successful for {user.email}. Redirect URL generated: {redirect_url}")
 
     # 4. Return the mandatory response
     return jsonify({
@@ -303,8 +330,8 @@ def handle_oauth_login(email, name, provider, provider_id):
             db.session.commit()
     else:
         # 2. Create New User
-        # Determine Role: First user = Super Admin
-        role = "Super Admin" if User.query.count() == 0 else "User"
+        # Determine Role: First user = SUPER_ADMIN
+        role = "SUPER_ADMIN" if User.query.count() == 0 else "USER"
         
         # Create Organization for the user (Requirement: Create or attach company_id)
         # For simplicity, we create a new organization for every new OAuth user 

@@ -1,4 +1,8 @@
 Flask
+Flask-Cors
 Flask-SQLAlchemy
 Flask-JWT-Extended
 python-dotenv
+requests
+pandas
+openpyxl

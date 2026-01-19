@@ -15,17 +15,17 @@ def get_deal_query(current_user):
     # Filter by Organization (using company_id as org_id based on schema)
     query = query.filter_by(company_id=current_user.organization_id)
 
-    if current_user.role == 'Super Admin':
+    if current_user.role == 'SUPER_ADMIN':
         return query
 
-    if current_user.role == 'Admin':
+    if current_user.role == 'ADMIN':
         return query
     
-    if current_user.role == 'Manager':
+    if current_user.role == 'MANAGER':
         team_ids = [u.id for u in User.query.filter_by(organization_id=current_user.organization_id, department=current_user.department).all()]
         return query.filter(Deal.owner_id.in_(team_ids))
     
-    if current_user.role == 'Employee':
+    if current_user.role == 'EMPLOYEE':
         return query.filter_by(owner_id=current_user.id)
     
     return query.filter_by(id=None)
