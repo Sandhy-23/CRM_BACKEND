@@ -2,6 +2,8 @@ from flask import Blueprint, request, jsonify, current_app
 from extensions import db
 from models.user import User, LoginHistory
 from models.organization import Organization
+from models.otp_verification import OtpVerification
+from models.password_reset import PasswordResetToken
 from flask_jwt_extended import create_access_token, verify_jwt_in_request, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
 import datetime
@@ -33,18 +35,6 @@ else:
 
 auth_bp = Blueprint('auth', __name__)
 social_bp = Blueprint('social_auth', __name__)
-
-# --- Database Model for OTP (Persistence) ---
-class OtpVerification(db.Model):
-    __tablename__ = 'otp_verifications'
-    id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(120), nullable=False)
-    otp = db.Column(db.String(6), nullable=False)
-    name = db.Column(db.String(100)) # Store temp data
-    password_hash = db.Column(db.String(200)) # Store temp data
-    expiry = db.Column(db.DateTime, nullable=False)
-
-password_reset_storage = {} # { email: { 'otp': str, 'expiry': datetime } }
 
 # --- Helper Functions ---
 
@@ -94,6 +84,8 @@ def send_email(to_email, subject, body):
 
     # 2. No Mock Output (Requested for Security)
     print(f"⚠️ SMTP not configured. OTP to {to_email} was NOT sent.\n   -> MAIL_USERNAME present: {bool(smtp_user)}\n   -> MAIL_PASSWORD present: {bool(smtp_password)}")
+    print(f"⚠️ SMTP not configured. OTP for {to_email} was NOT sent via email.")
+    print(f"   -> For development, the OTP is contained in the email body: {body}")
     return False
 
 def token_required(f):
@@ -163,6 +155,9 @@ def verify_otp():
     email = data.get('email', '').strip().lower()
     otp = data.get('otp', '').strip()
 
+    if not email or not otp:
+        return jsonify({"error": "Email and OTP are required"}), 400
+
     # 1. Check DB Storage
     record = OtpVerification.query.filter_by(email=email).first()
     
@@ -182,19 +177,18 @@ def verify_otp():
         return jsonify({"error": "OTP has expired"}), 400
 
     # 3. Create User in Database (Final Step)
-    # Determine Role: First user = SUPER_ADMIN, others = USER (default)
-    is_first_user = User.query.count() == 0
-    role = "SUPER_ADMIN" if is_first_user else "USER"
+    # Check if user already exists (Double check to avoid IntegrityError)
+    if User.query.filter_by(email=email).first():
+        db.session.delete(record)
+        db.session.commit()
+        return jsonify({"message": "User already verified. Please login."}), 200
 
-    # Ensure Super Admin has an Organization
+    # Determine Role: Public signup is always for SUPER_ADMIN (New Organization Owner)
+    # Employees are added by Admins via the dashboard, not via public signup.
+    role = "SUPER_ADMIN"
+
+    # Organization is NOT created here. It is created during Organization Setup after login.
     org_id = None
-    if is_first_user:
-        default_org = Organization.query.first()
-        if not default_org:
-            default_org = Organization(name="Headquarters", subscription_plan="Enterprise")
-            db.session.add(default_org)
-            db.session.flush()
-        org_id = default_org.id
 
     new_user = User(
         name=record.name,
@@ -211,10 +205,12 @@ def verify_otp():
         db.session.delete(record) # Remove OTP record
         db.session.commit()
         
+        print(f"✅ User created successfully: {email} (Role: {role})")
         return jsonify({"message": "Account verified successfully. You can now login."}), 200
 
     except Exception as e:
         db.session.rollback()
+        print(f"❌ Database Error in verify-otp: {e}")
         return jsonify({"error": str(e)}), 500
     
 
@@ -227,8 +223,12 @@ def login():
     user = User.query.filter_by(email=email).first()
 
     # 1. Verify credentials
-    if not user or not check_password_hash(user.password, password):
-        print(f"❌ Login Failed for '{email}': {'User not found' if not user else 'Password mismatch'}")
+    if not user:
+        print(f"❌ Login Failed: User '{email}' not found in DB.")
+        return jsonify({"error": "Invalid email or password"}), 401
+
+    if not check_password_hash(user.password, password):
+        print(f"❌ Login Failed: Password mismatch for '{email}'.")
         return jsonify({"error": "Invalid email or password"}), 401
 
     # 1.1 Check if user is verified from signup
@@ -242,7 +242,7 @@ def login():
         additional_claims={
             "email": user.email, 
             "role": user.role,
-            "company_id": user.organization_id
+            "organization_id": user.organization_id
         }
     )
     
@@ -330,8 +330,8 @@ def handle_oauth_login(email, name, provider, provider_id):
             db.session.commit()
     else:
         # 2. Create New User
-        # Determine Role: First user = SUPER_ADMIN
-        role = "SUPER_ADMIN" if User.query.count() == 0 else "USER"
+        # Determine Role: Public OAuth is always SUPER_ADMIN (New Organization Owner)
+        role = "SUPER_ADMIN"
         
         # Create Organization for the user (Requirement: Create or attach company_id)
         # For simplicity, we create a new organization for every new OAuth user 
@@ -361,7 +361,7 @@ def handle_oauth_login(email, name, provider, provider_id):
         additional_claims={
             "email": user.email, 
             "role": user.role,
-            "company_id": user.organization_id
+            "organization_id": user.organization_id
         }
     )
     
@@ -400,12 +400,20 @@ def forgot_password():
     otp = generate_otp()
     expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=2)
     
-    # Store OTP in-memory for password reset
-    password_reset_storage[email] = {'otp': otp, 'expiry': expiry}
+    # Store OTP in the database for password reset
+    PasswordResetToken.query.filter_by(email=email).delete()
+    reset_token_entry = PasswordResetToken(
+        email=email,
+        otp=otp,
+        expiry=expiry
+    )
+    db.session.add(reset_token_entry)
+    db.session.commit()
     
     if send_email(email, "Reset Password OTP", f"Your password reset OTP is {otp}"):
         return jsonify({"message": "If this email is registered, an OTP has been sent."}), 200
     else:
+        # In a real app, you might not want to expose this failure.
         return jsonify({"error": "Failed to send password reset email."}), 500
 
 @auth_bp.route('/reset-password', methods=['POST'])
@@ -419,19 +427,20 @@ def reset_password():
     if not user:
         return jsonify({"error": "Invalid request"}), 400
         
-    # Check in-memory storage for the reset OTP
-    record = password_reset_storage.get(email)
+    # Check database for the reset OTP
+    record = PasswordResetToken.query.filter_by(email=email).first()
 
     if not record:
         return jsonify({"error": "No pending password reset found or OTP expired."}), 400
 
-    if record['otp'] == otp and datetime.datetime.utcnow() <= record['expiry']:
+    if record.otp != otp:
+        return jsonify({"error": "Invalid or expired OTP"}), 400
+
+    if datetime.datetime.utcnow() <= record.expiry:
         # OTP is valid, update the password
         user.password = generate_password_hash(new_password)
+        db.session.delete(record) # Clear the used OTP from DB
         db.session.commit()
-        
-        # Clear the used OTP from memory
-        del password_reset_storage[email]
         
         return jsonify({"message": "Password reset successfully"}), 200
         

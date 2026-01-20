@@ -6,6 +6,7 @@ from sqlalchemy import text
 from routes import auth_bp, social_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp, lead_bp, deal_bp, note_file_bp
 from routes.import_export_routes import import_export_bp
 from routes.chart_routes import chart_bp
+from routes.organization_routes import organization_bp
 from config import Config
 import models
 from dotenv import load_dotenv
@@ -31,6 +32,7 @@ app.register_blueprint(lead_bp)
 app.register_blueprint(deal_bp)
 app.register_blueprint(import_export_bp, url_prefix="/api")
 app.register_blueprint(note_file_bp)
+app.register_blueprint(organization_bp, url_prefix="/api")
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):
@@ -191,6 +193,29 @@ with app.app_context():
                     try:
                         connection.execute(text(f"ALTER TABLE contacts ADD COLUMN {col_name} {col_type}"))
                         print(f"✔ Added column: {col_name} to contacts")
+                    except Exception:
+                        pass
+                connection.commit()
+            
+            # 6. Fix Organizations Table (Setup Flow Requirements)
+            try:
+                connection.execute(text("SELECT company_size FROM organizations LIMIT 1"))
+            except Exception:
+                print("⚠️ Column 'company_size' not found in organizations. Applying migrations...")
+                org_cols = [
+                    ("company_size", "VARCHAR(50)"),
+                    ("industry", "VARCHAR(100)"),
+                    ("phone", "VARCHAR(20)"),
+                    ("country", "VARCHAR(100)"),
+                    ("state", "VARCHAR(100)"),
+                    ("city_or_branch", "VARCHAR(100)"),
+                    ("created_by", "INTEGER"),
+                    ("updated_at", "DATETIME")
+                ]
+                for col_name, col_type in org_cols:
+                    try:
+                        connection.execute(text(f"ALTER TABLE organizations ADD COLUMN {col_name} {col_type}"))
+                        print(f"✔ Added column: {col_name} to organizations")
                     except Exception:
                         pass
                 connection.commit()

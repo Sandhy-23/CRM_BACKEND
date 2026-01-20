@@ -39,7 +39,7 @@
 								"signup"
 							]
 						},
-						"description": "Registers the first user as Super Admin (Requires OTP Verification)."
+						"description": "Registers the first user. \n\n👉 AFTER SENDING: Check your backend terminal/console for the 6-digit OTP."
 					},
 					"response": []
 				},
@@ -64,7 +64,7 @@
 								"verify-otp"
 							]
 						},
-						"description": "Verify the OTP sent to console/email."
+						"description": "👉 ACTION REQUIRED: Replace '123456' in the Body with the actual OTP from your backend terminal."
 					},
 					"response": []
 				},
@@ -120,6 +120,51 @@
 							]
 						},
 						"description": "Logs in the user and directly receives the token and redirect URL. Sets {{token}} and {{dashboard_url}} environment variables."
+					},
+					"response": []
+				},
+				{
+					"name": "1.4 Organization Setup",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"organization_name\": \"RVH Technologies\",\n  \"organization_size\": \"11-50\",\n  \"industry\": \"IT / Software\",\n  \"phone\": \"9876543210\",\n  \"country\": \"India\",\n  \"state\": \"Telangana\",\n  \"city_or_branch\": \"Hyderabad\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/organization/setup",
+							"protocol": "http",
+							"host": [
+								"127",
+								"0",
+								"0",
+								"1"
+							],
+							"port": "5000",
+							"path": [
+								"api",
+								"organization",
+								"setup"
+							]
+						},
+						"description": "Sets up the organization details for the logged-in Super Admin."
 					},
 					"response": []
 				},
