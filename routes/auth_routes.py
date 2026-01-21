@@ -3,7 +3,6 @@ from extensions import db
 from models.user import User, LoginHistory
 from models.organization import Organization
 from models.otp_verification import OtpVerification
-from models.password_reset import PasswordResetToken
 from flask_jwt_extended import create_access_token, verify_jwt_in_request, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
 import datetime
@@ -96,12 +95,46 @@ def token_required(f):
             user_id = get_jwt_identity()
             current_user = User.query.get(int(user_id))
             if not current_user:
+                print(f"❌ Auth Error: User ID {user_id} not found in database.")
                 return jsonify({'message': 'User not found!'}), 401
         except Exception as e:
+            print(f"❌ Auth Error: Token verification failed. {str(e)}")
             return jsonify({'message': 'Token is invalid!', 'error': str(e)}), 401
             
         return f(current_user, *args, **kwargs)
     return decorated
+
+def construct_dashboard_url(user):
+    """
+    Generates the dashboard URL with subdomain based on organization name.
+    - Local Dev: http://<org-slug>.<product>.lvh.me:3000/t/home
+    - Production: https://<org-slug>.<domain>/t/home
+    """
+    base_url = os.environ.get('FRONTEND_BASE_URL', 'http://localhost:3000')
+    product_name = os.environ.get('PRODUCT_NAME', 'rvhcrm') # e.g., 'rvhcrm'
+
+    parsed = urllib.parse.urlparse(base_url)
+    scheme = parsed.scheme or 'http'
+    netloc = parsed.netloc # e.g., localhost:3000 or graphy.com
+
+    # Use email username (part before @) as the subdomain
+    email_part = user.email.split('@')[0]
+    safe_name = email_part.lower().strip()
+    safe_name = re.sub(r'\s+', '-', safe_name) # Replace spaces with hyphens
+    safe_name = re.sub(r'[^a-z-]', '', safe_name) # Remove special chars and numbers
+    safe_name = re.sub(r'-+', '-', safe_name) # Remove duplicate hyphens
+    safe_name = safe_name.strip('-')
+    org_slug = safe_name or "app"
+
+    # Check if we are in a local development environment
+    if 'localhost' in netloc or '127.0.0.1' in netloc:
+        # Use lvh.me format for local dev, as it resolves all subdomains to 127.0.0.1
+        # e.g., http://my-org.graphy.lvh.me:3000/t/home
+        return f"{scheme}://{org_slug}.{product_name}.com/dashboard"
+    else:
+        # Production format
+        # e.g., https://my-org.graphy.com/t/home
+        return f"{scheme}://{org_slug}.{netloc}/dashboard"
 
 # --- Routes ---
 
@@ -147,7 +180,7 @@ def signup():
     # Send OTP (Logs to console if SMTP not set)
     send_email(email, "Signup OTP", f"Your OTP is: {otp}")
     
-    return jsonify({"message": "OTP sent successfully. Please verify."}), 200
+    return jsonify({"message": "OTP sent successfully"}), 200
 
 @auth_bp.route('/verify-otp', methods=['POST'])
 def verify_otp():
@@ -176,19 +209,23 @@ def verify_otp():
         db.session.commit()
         return jsonify({"error": "OTP has expired"}), 400
 
-    # 3. Create User in Database (Final Step)
-    # Check if user already exists (Double check to avoid IntegrityError)
+    # 3. Create User in Database
     if User.query.filter_by(email=email).first():
         db.session.delete(record)
         db.session.commit()
         return jsonify({"message": "User already verified. Please login."}), 200
 
-    # Determine Role: Public signup is always for SUPER_ADMIN (New Organization Owner)
-    # Employees are added by Admins via the dashboard, not via public signup.
+    # Determine Role: First user is SUPER_ADMIN. Subsequent public signups create new orgs.
     role = "SUPER_ADMIN"
 
-    # Organization is NOT created here. It is created during Organization Setup after login.
-    org_id = None
+    # Create a new Organization for this new user.
+    org_name = f"{record.name}'s Organization" if record.name else f"{email.split('@')[0]}'s Org"
+    new_org = Organization(
+        name=org_name,
+        created_by=None # Will be set after user is created
+    )
+    db.session.add(new_org)
+    db.session.flush() # This is needed to get the ID for the user object.
 
     new_user = User(
         name=record.name,
@@ -197,7 +234,7 @@ def verify_otp():
         role=role,
         is_verified=True,
         status="Active",
-        organization_id=org_id
+        organization_id=new_org.id
     )
 
     try:
@@ -205,8 +242,12 @@ def verify_otp():
         db.session.delete(record) # Remove OTP record
         db.session.commit()
         
+        # Now that user exists, link them as the creator of the org
+        new_org.created_by = new_user.id
+        db.session.commit()
+
         print(f"✅ User created successfully: {email} (Role: {role})")
-        return jsonify({"message": "Account verified successfully. You can now login."}), 200
+        return jsonify({"message": "Signup successful"}), 200
 
     except Exception as e:
         db.session.rollback()
@@ -252,19 +293,14 @@ def login():
     db.session.commit()
 
     # 3. Determine Full Redirect URL
-    base_url = os.environ.get('FRONTEND_BASE_URL', 'https://rvhcrm.com')
-    
-    # Sanitize username (lowercase, remove special chars)
-    username_slug = re.sub(r'[^a-zA-Z0-9]', '', user.email.lower()) if user.email else "user"
-
-    redirect_url = f"{base_url.rstrip('/')}/{username_slug}/dashboard"
-    print(f"✅ Login Successful for {user.email}. Redirect URL generated: {redirect_url}")
+    full_url = construct_dashboard_url(user)
+    print(f"✅ Login Successful for {user.email}. URL generated: {full_url}")
 
     # 4. Return the mandatory response
     return jsonify({
         "token": access_token,
         "role": user.role,
-        "redirect_url": redirect_url
+        "url": full_url
     }), 200
 
 @social_bp.route('/google', methods=['POST'])
@@ -376,9 +412,7 @@ def handle_oauth_login(email, name, provider, provider_id):
     db.session.commit()
     
     # 5. Generate Redirect URL
-    base_url = os.environ.get('FRONTEND_BASE_URL', 'https://rvhcrm.com')
-    username_slug = re.sub(r'[^a-zA-Z0-9]', '', user.email.lower()) if user.email else "user"
-    redirect_url = f"{base_url.rstrip('/')}/{username_slug}/dashboard"
+    redirect_url = construct_dashboard_url(user)
     
     return jsonify({
         "message": "Login successful",
@@ -398,11 +432,11 @@ def forgot_password():
         return jsonify({"message": "If this email is registered, an OTP has been sent."}), 200
     
     otp = generate_otp()
-    expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=2)
+    expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
     
-    # Store OTP in the database for password reset
-    PasswordResetToken.query.filter_by(email=email).delete()
-    reset_token_entry = PasswordResetToken(
+    # Use OtpVerification table for password reset OTPs as well
+    OtpVerification.query.filter_by(email=email).delete()
+    reset_token_entry = OtpVerification(
         email=email,
         otp=otp,
         expiry=expiry
@@ -422,26 +456,32 @@ def reset_password():
     email = data.get('email')
     otp = data.get('otp')
     new_password = data.get('new_password')
-    
+    confirm_password = data.get('confirm_password')
+
+    if not all([email, otp, new_password, confirm_password]):
+        return jsonify({"error": "All fields (email, otp, new_password, confirm_password) are required"}), 400
+
+    if new_password != confirm_password:
+        return jsonify({"error": "Passwords do not match"}), 400
+
     user = User.query.filter_by(email=email).first()
     if not user:
         return jsonify({"error": "Invalid request"}), 400
         
-    # Check database for the reset OTP
-    record = PasswordResetToken.query.filter_by(email=email).first()
+    # Check OtpVerification table for the reset OTP
+    record = OtpVerification.query.filter_by(email=email).first()
 
     if not record:
         return jsonify({"error": "No pending password reset found or OTP expired."}), 400
 
-    if record.otp != otp:
+    if record.otp != otp or datetime.datetime.utcnow() > record.expiry:
+        db.session.delete(record)
+        db.session.commit()
         return jsonify({"error": "Invalid or expired OTP"}), 400
 
-    if datetime.datetime.utcnow() <= record.expiry:
-        # OTP is valid, update the password
-        user.password = generate_password_hash(new_password)
-        db.session.delete(record) # Clear the used OTP from DB
-        db.session.commit()
-        
-        return jsonify({"message": "Password reset successfully"}), 200
-        
-    return jsonify({"error": "Invalid or expired OTP"}), 400
+    # OTP is valid, update the password
+    user.password = generate_password_hash(new_password)
+    db.session.delete(record) # Clear the used OTP from DB
+    db.session.commit()
+    
+    return jsonify({"message": "Password reset successfully"}), 200

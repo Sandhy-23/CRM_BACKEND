@@ -55,21 +55,14 @@ with app.app_context():
             try:
                 connection.execute(text("SELECT is_verified FROM users LIMIT 1"))
             except Exception:
-                print("⚠️ Column 'is_verified' not found. Applying migrations...")
-                auth_cols = [
-                    ("is_verified", "BOOLEAN DEFAULT 0"),
-                    ("otp", "VARCHAR(6)"),
-                    ("otp_expiry", "DATETIME"),
-                    ("reset_token", "VARCHAR(100)"),
-                    ("reset_token_expiry", "DATETIME")
-                ]
-                for col_name, col_type in auth_cols:
-                    try:
-                        connection.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
-                        print(f"✔ Added column: {col_name}")
-                    except Exception:
-                        pass # Column might already exist
-                connection.commit()
+                print("⚠️ Column 'is_verified' not found. Applying migration...")
+                # This part is now simplified as other columns are removed from the model
+                try:
+                    connection.execute(text("ALTER TABLE users ADD COLUMN is_verified BOOLEAN DEFAULT 0"))
+                    print("✔ Added column: is_verified")
+                    connection.commit()
+                except Exception:
+                    pass # Column might already exist
 
             # Check if provider column exists (Social Auth)
             try:
@@ -216,6 +209,24 @@ with app.app_context():
                     try:
                         connection.execute(text(f"ALTER TABLE organizations ADD COLUMN {col_name} {col_type}"))
                         print(f"✔ Added column: {col_name} to organizations")
+                    except Exception:
+                        pass
+                connection.commit()
+
+            # 7. Fix OTP Verifications Table (New Signup Flow Requirements)
+            try:
+                connection.execute(text("SELECT created_at FROM otp_verifications LIMIT 1"))
+            except Exception:
+                print("⚠️ Column 'created_at' not found in otp_verifications. Applying migrations...")
+                otp_cols = [
+                    ("created_at", "DATETIME"),
+                    ("name", "VARCHAR(100)"),
+                    ("password_hash", "VARCHAR(200)")
+                ]
+                for col_name, col_type in otp_cols:
+                    try:
+                        connection.execute(text(f"ALTER TABLE otp_verifications ADD COLUMN {col_name} {col_type}"))
+                        print(f"✔ Added column: {col_name} to otp_verifications")
                     except Exception:
                         pass
                 connection.commit()
