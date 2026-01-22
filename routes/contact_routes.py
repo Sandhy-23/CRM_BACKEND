@@ -5,7 +5,7 @@ from models.user import User
 from models.activity_log import ActivityLog
 from extensions import db
 from datetime import datetime, timedelta
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 contact_bp = Blueprint('contacts', __name__)
 
@@ -61,22 +61,32 @@ def get_contact_query(current_user):
 @token_required
 def create_contact(current_user):
     data = request.get_json()
-    
-    if not data.get('first_name') or not data.get('email'):
-        return jsonify({'message': 'First Name and Email are required'}), 400
+    email = data.get("email")
+    mobile = data.get("mobile")
 
-    # Unique Email Check (Per Company)
-    existing_contact = Contact.query.filter_by(email=data.get('email'), organization_id=current_user.organization_id).first()
-    if existing_contact:
-        return jsonify({'message': 'Contact with this email already exists in your company'}), 409
+    if not data.get('first_name') or not email or not mobile:
+        return jsonify({'message': 'First Name, Email, and Mobile are required'}), 400
+
+    # Unique Check for email OR mobile (Per Company)
+    existing = Contact.query.filter(
+        Contact.organization_id == current_user.organization_id,
+        or_(Contact.email == email, Contact.mobile == mobile)
+    ).first()
+
+    if existing:
+        return jsonify({
+            "error": "Duplicate contact detected",
+            "message": "A contact with this email or mobile already exists in your organization.",
+            "existing_contact_id": existing.id
+        }), 409
 
     new_contact = Contact(
         first_name=data.get('first_name'),
         last_name=data.get('last_name'),
         name=f"{data.get('first_name')} {data.get('last_name') or ''}".strip(),
-        email=data.get('email'),
+        email=email,
+        mobile=mobile,
         phone=data.get('phone'),
-        mobile=data.get('mobile'),
         company=data.get('company'),
         status=data.get('status', 'Active'),
         source=data.get('source', 'Manual'),
@@ -206,3 +216,64 @@ def get_contact_stats(current_user):
         "by_status": {s[0]: s[1] for s in status_counts}
     }
     return jsonify(stats), 200
+
+@contact_bp.route('/api/contacts/search', methods=['GET'])
+@token_required
+def search_contacts(current_user):
+    query_param = request.args.get("q")
+    if not query_param:
+        return jsonify({'message': 'Search query parameter "q" is required.'}), 400
+
+    base_query = get_contact_query(current_user)
+
+    search_filter = or_(
+        Contact.first_name.ilike(f"%{query_param}%"),
+        Contact.last_name.ilike(f"%{query_param}%"),
+        Contact.email.ilike(f"%{query_param}%"),
+        Contact.mobile.ilike(f"%{query_param}%"),
+        Contact.company.ilike(f"%{query_param}%")
+    )
+
+    contacts = base_query.filter(search_filter).all()
+
+    # Using the model's to_dict method for serialization
+    return jsonify([c.to_dict() for c in contacts])
+
+@contact_bp.route('/api/contacts/duplicates', methods=['GET'])
+@token_required
+def find_duplicates(current_user):
+    """
+    Scans for duplicate contacts accessible by the user based on email and mobile.
+    """
+    # Base query for the user's organization/role
+    base_query = get_contact_query(current_user)
+    
+    # Get all contact IDs accessible by the user
+    accessible_contact_ids = [c.id for c in base_query.with_entities(Contact.id).all()]
+
+    if not accessible_contact_ids:
+        return jsonify({"duplicate_emails": [], "duplicate_mobiles": []})
+
+    # Find duplicate emails within accessible contacts
+    email_dupes_query = db.session.query(
+        Contact.email,
+        func.count(Contact.id).label('count')
+    ).filter(
+        Contact.id.in_(accessible_contact_ids)
+    ).group_by(Contact.email).having(func.count(Contact.id) > 1)
+    
+    # Find duplicate mobiles within accessible contacts
+    mobile_dupes_query = db.session.query(
+        Contact.mobile,
+        func.count(Contact.id).label('count')
+    ).filter(
+        Contact.id.in_(accessible_contact_ids)
+    ).group_by(Contact.mobile).having(func.count(Contact.id) > 1)
+
+    duplicate_emails = [row[0] for row in email_dupes_query.all()]
+    duplicate_mobiles = [row[0] for row in mobile_dupes_query.all()]
+
+    return jsonify({
+        "duplicate_emails": duplicate_emails,
+        "duplicate_mobiles": duplicate_mobiles
+    })

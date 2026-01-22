@@ -6,7 +6,7 @@ from models.user import User
 from models.activity_log import ActivityLog
 from routes.auth_routes import token_required
 from datetime import datetime
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 lead_bp = Blueprint('leads', __name__)
 
@@ -160,6 +160,18 @@ def convert_lead(current_user, lead_id):
     if lead.status == 'Converted':
         return jsonify({'message': 'Lead is already converted'}), 400
 
+    # --- Pre-conversion validation for Contact creation ---
+    if not lead.email or not lead.mobile:
+        return jsonify({'message': 'Cannot convert lead. Contact requires both an email and a mobile number.'}), 400
+
+    # Check for duplicate contact before creating
+    existing_contact = Contact.query.filter(
+        Contact.organization_id == lead.company_id,
+        or_(Contact.email == lead.email, Contact.mobile == lead.mobile)
+    ).first()
+    if existing_contact:
+        return jsonify({'message': f'A contact with this email or mobile already exists (ID: {existing_contact.id}). Cannot convert lead.'}), 409
+
     # 1. Create Account (Company)
     new_account = Account(
         account_name=lead.company,
@@ -172,9 +184,12 @@ def convert_lead(current_user, lead_id):
 
     # 2. Create Contact
     new_contact = Contact(
-        name=f"{lead.first_name or ''} {lead.last_name}".strip(),
+        first_name=lead.first_name,
+        last_name=lead.last_name,
+        name=f"{lead.first_name or ''} {lead.last_name}".strip(), # Keep for compatibility if needed
         email=lead.email,
         phone=lead.phone,
+        mobile=lead.mobile,
         company=lead.company,
         assigned_to=lead.owner_id,
         organization_id=lead.company_id,

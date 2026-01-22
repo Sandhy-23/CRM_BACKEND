@@ -361,7 +361,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"token\": \"PASTE_TOKEN_HERE\",\n    \"new_password\": \"newsecurepassword\"\n}"
+							"raw": "{\n    \"email\": \"super@example.com\",\n    \"otp\": \"PASTE_OTP_HERE\",\n    \"new_password\": \"newsecurepassword\",\n    \"confirm_password\": \"newsecurepassword\"\n}"
 						},
 						"url": {
 							"raw": "http://127.0.0.1:5000/auth/reset-password",
@@ -373,7 +373,7 @@
 								"reset-password"
 							]
 						},
-						"description": "Resets password using the token."
+						"description": "Resets password using the OTP from the 'Forgot Password' step."
 					},
 					"response": []
 				}
@@ -949,7 +949,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"first_name\": \"Jane\",\n    \"last_name\": \"Doe\",\n    \"email\": \"jane.doe@company.com\",\n    \"phone\": \"1234567890\",\n    \"mobile\": \"0987654321\",\n    \"company\": \"Tech Corp\",\n    \"source\": \"Website\",\n    \"status\": \"Active\"\n}",
+							"raw": "{\n  \"first_name\": \"Ravi\",\n  \"last_name\": \"Kumar\",\n  \"email\": \"ravi@gmail.com\",\n  \"mobile\": \"9876543210\",\n  \"company\": \"ABC Pvt Ltd\",\n  \"status\": \"Lead\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -1072,6 +1072,65 @@
 								"api",
 								"contacts",
 								"1"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "6. Search Contacts",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/contacts/search?q=ravi",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"contacts",
+								"search"
+							],
+							"query": [
+								{
+									"key": "q",
+									"value": "ravi"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "7. Find Duplicates",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/contacts/duplicates",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"contacts",
+								"duplicates"
 							]
 						}
 					},
@@ -1286,7 +1345,6 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"token\": \"YOUR_VALID_GOOGLE_ID_TOKEN\"\n}",
 							"raw": "{\n    \"google_token\": \"YOUR_VALID_GOOGLE_ID_TOKEN\"\n}",
 							"options": {
 								"raw": {
@@ -1315,7 +1373,6 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"token\": \"YOUR_VALID_FACEBOOK_ACCESS_TOKEN\"\n}",
 							"raw": "{\n    \"facebook_token\": \"YOUR_VALID_FACEBOOK_ACCESS_TOKEN\"\n}",
 							"options": {
 								"raw": {

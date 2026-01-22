@@ -8,9 +8,9 @@ class Contact(db.Model):
     name = db.Column(db.String(100), nullable=True) # Kept for backward compatibility
     first_name = db.Column(db.String(50), nullable=True) # Enforced in API
     last_name = db.Column(db.String(50))
-    email = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
     phone = db.Column(db.String(20))
-    mobile = db.Column(db.String(20))
+    mobile = db.Column(db.String(20), unique=True, nullable=False)
     company = db.Column(db.String(100))
     status = db.Column(db.String(20), default='Lead') # Lead, Active, Inactive
     source = db.Column(db.String(50))
