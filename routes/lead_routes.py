@@ -46,8 +46,8 @@ def get_lead_query(current_user):
         team_ids = [u.id for u in User.query.filter_by(organization_id=current_user.organization_id, department=current_user.department).all()]
         return query.filter(Lead.owner_id.in_(team_ids))
     
-    # 4. Employee: View Assigned Leads Only
-    if current_user.role == 'EMPLOYEE':
+    # 4. Employee/User: View Assigned Leads Only
+    if current_user.role in ['EMPLOYEE', 'USER']:
         return query.filter_by(owner_id=current_user.id)
     
     return query.filter_by(id=None) # Fallback
@@ -229,3 +229,54 @@ def convert_lead(current_user, lead_id):
         'contact_id': new_contact.id,
         'deal_id': new_deal.id
     }), 200
+
+@lead_bp.route('/api/leads/<int:lead_id>/assign', methods=['PUT'])
+@token_required
+def assign_lead(current_user, lead_id):
+    # Allow Admin, Super Admin, Manager to assign
+    if current_user.role not in ['SUPER_ADMIN', 'ADMIN', 'MANAGER']:
+        return jsonify({'message': 'Unauthorized. Only Admin or Manager can assign leads.'}), 403
+
+    lead = get_lead_query(current_user).filter_by(id=lead_id).first()
+    if not lead:
+        return jsonify({'message': 'Lead not found'}), 404
+
+    data = request.get_json()
+    assigned_to = data.get('assigned_to')
+
+    if not assigned_to:
+        return jsonify({'message': 'assigned_to (user_id) is required'}), 400
+
+    # Verify the user exists and is in the same organization
+    assignee = User.query.get(assigned_to)
+    if not assignee or assignee.organization_id != current_user.organization_id:
+        return jsonify({'message': 'User not found in your organization'}), 404
+
+    lead.owner_id = assigned_to
+    # Update assigned_to column if it exists (based on app.py migration it does)
+    if hasattr(lead, 'assigned_to'):
+        lead.assigned_to = assigned_to
+
+    db.session.commit()
+    log_activity(current_user.id, f"Assigned lead to {assignee.name}", "Lead", lead.id)
+    
+    return jsonify({'message': 'Lead assigned successfully'}), 200
+
+@lead_bp.route('/api/leads/<int:lead_id>/status', methods=['PUT'])
+@token_required
+def update_lead_status(current_user, lead_id):
+    lead = get_lead_query(current_user).filter_by(id=lead_id).first()
+    if not lead:
+        return jsonify({'message': 'Lead not found'}), 404
+
+    data = request.get_json()
+    status = data.get('status')
+
+    if not status:
+        return jsonify({'message': 'status is required'}), 400
+
+    lead.status = status
+    db.session.commit()
+    log_activity(current_user.id, f"Updated lead status to {status}", "Lead", lead.id)
+    
+    return jsonify({'message': 'Lead status updated successfully'}), 200

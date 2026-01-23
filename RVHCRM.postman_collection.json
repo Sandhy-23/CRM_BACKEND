@@ -1393,6 +1393,42 @@
 						}
 					},
 					"response": []
+				},
+				{
+					"name": "Assign Lead",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "PUT",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"assigned_to\": 2\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/leads/1/assign",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "leads", "1", "assign" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Lead Status",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "PUT",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": \"Qualified\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/leads/1/status",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "leads", "1", "status" ]
+						}
+					},
+					"response": []
 				}
 			]
 		},

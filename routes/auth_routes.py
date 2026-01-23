@@ -215,8 +215,11 @@ def verify_otp():
         db.session.commit()
         return jsonify({"message": "User already verified. Please login."}), 200
 
-    # Determine Role: First user is SUPER_ADMIN. Subsequent public signups create new orgs.
-    role = "SUPER_ADMIN"
+    # Determine Role: First user is SUPER_ADMIN. Subsequent public signups are regular users.
+    if User.query.count() == 0:
+        role = "SUPER_ADMIN"
+    else:
+        role = "USER"
 
     # Create a new Organization for this new user.
     org_name = f"{record.name}'s Organization" if record.name else f"{email.split('@')[0]}'s Org"
@@ -263,6 +266,13 @@ def login():
 
     user = User.query.filter_by(email=email).first()
 
+    # --- DEBUG START (Requested for troubleshooting) ---
+    print(f"--- LOGIN DEBUG ---")
+    print(f"LOGIN EMAIL: {email}")
+    print(f"DB EMAIL: {user.email if user else 'User Not Found'}")
+    print(f"HASH IN DB: {user.password if user else 'N/A'}")
+    # --- DEBUG END ---
+
     # 1. Verify credentials
     if not user:
         print(f"❌ Login Failed: User '{email}' not found in DB.")
@@ -300,7 +310,7 @@ def login():
     return jsonify({
         "token": access_token,
         "role": user.role,
-        "url": full_url
+        "redirect_url": full_url
     }), 200
 
 @social_bp.route('/google', methods=['POST'])
