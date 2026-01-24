@@ -4,55 +4,52 @@ from models.crm import Deal
 from models.user import User
 from models.activity_log import ActivityLog
 from routes.auth_routes import token_required
-from datetime import datetime
+from datetime import datetime, date
+from sqlalchemy import func
 
 deal_bp = Blueprint('deals', __name__)
 
 def get_deal_query(current_user):
-    """Enforce Zoho-style Role Based Access Control for Deals"""
-    query = Deal.query
-    
-    # Filter by Organization (using company_id as org_id based on schema)
-    query = query.filter_by(company_id=current_user.organization_id)
+    """Enforce Role Based Access Control for Deals"""
+    query = Deal.query.filter_by(organization_id=current_user.organization_id)
 
-    if current_user.role == 'SUPER_ADMIN':
-        return query
-
-    if current_user.role == 'ADMIN':
+    if current_user.role in ['SUPER_ADMIN', 'ADMIN']:
         return query
     
     if current_user.role == 'MANAGER':
+        # Manager sees own deals + team deals
         team_ids = [u.id for u in User.query.filter_by(organization_id=current_user.organization_id, department=current_user.department).all()]
         return query.filter(Deal.owner_id.in_(team_ids))
     
-    if current_user.role == 'EMPLOYEE':
-        return query.filter_by(owner_id=current_user.id)
-    
-    return query.filter_by(id=None)
+    # Employee/User sees only their own deals
+    return query.filter_by(owner_id=current_user.id)
 
 @deal_bp.route('/api/deals', methods=['POST'])
 @token_required
 def create_deal(current_user):
     data = request.get_json()
-    if not data:
-        return jsonify({'message': 'Invalid JSON data'}), 400
     
-    # Support 'deal_name' from legacy requests/Postman
-    deal_name = data.get('deal_name') or data.get('title')
-    if not deal_name or not data.get('stage'):
-        print(f"❌ Validation Error (Create Deal): Missing deal_name or stage. Received: {data}")
-        return jsonify({'error': 'Validation error', 'message': 'Deal name is required'}), 400
+    if not data.get('title') or not data.get('amount'):
+        return jsonify({'message': 'Title and Amount are required'}), 400
+
+    # Parse expected_close_date
+    expected_date = None
+    if data.get('expected_close_date'):
+        try:
+            expected_date = datetime.strptime(data.get('expected_close_date'), '%Y-%m-%d').date()
+        except ValueError:
+            pass
 
     new_deal = Deal(
-        deal_name=deal_name,
+        title=data['title'],
         amount=data.get('amount', 0),
-        stage=data.get('stage'),
-        probability=data.get('probability', 0),
-        owner_id=data.get('owner_id', current_user.id),
-        created_at=datetime.utcnow()
+        lead_id=data.get('lead_id'),
+        expected_close_date=expected_date,
+        owner_id=current_user.id,
+        organization_id=current_user.organization_id,
+        stage="Prospecting",
+        status="Open"
     )
-    # Assign Organization
-    new_deal.company_id = current_user.organization_id
     
     db.session.add(new_deal)
     db.session.commit()
@@ -65,27 +62,60 @@ def get_deals(current_user):
     query = get_deal_query(current_user)
     deals = query.order_by(Deal.created_at.desc()).all()
     
-    result = [{
-        "id": d.id,
-        "deal_name": d.deal_name,
-        "amount": d.amount,
-        "stage": d.stage,
-        "probability": d.probability,
-        "owner_id": d.owner_id
-    } for d in deals]
-    
-    return jsonify(result), 200
+    return jsonify([
+        {
+            "id": d.id,
+            "title": d.title,
+            "amount": d.amount,
+            "stage": d.stage,
+            "status": d.status,
+            "expected_close_date": str(d.expected_close_date) if d.expected_close_date else None
+        }
+        for d in deals
+    ]), 200
 
-@deal_bp.route('/api/deals/<int:deal_id>', methods=['PUT'])
+@deal_bp.route('/api/deals/<int:deal_id>/stage', methods=['PUT'])
 @token_required
-def update_deal(current_user, deal_id):
+def update_stage(current_user, deal_id):
     deal = get_deal_query(current_user).filter_by(id=deal_id).first()
     if not deal:
         return jsonify({'message': 'Deal not found'}), 404
 
     data = request.get_json()
-    if 'stage' in data: deal.stage = data['stage']
-    if 'amount' in data: deal.amount = data['amount']
+    if 'stage' in data:
+        deal.stage = data['stage']
+        db.session.commit()
+        return jsonify({'message': 'Deal stage updated'}), 200
+    return jsonify({'message': 'Stage is required'}), 400
+
+@deal_bp.route('/api/deals/<int:deal_id>/close', methods=['PUT'])
+@token_required
+def close_deal(current_user, deal_id):
+    deal = get_deal_query(current_user).filter_by(id=deal_id).first()
+    if not deal:
+        return jsonify({'message': 'Deal not found'}), 404
+
+    data = request.get_json()
+    status = data.get('status')
     
+    if status not in ['Won', 'Lost']:
+        return jsonify({'message': 'Status must be Won or Lost'}), 400
+
+    deal.status = status
+    deal.stage = status # Sync stage with status for Won/Lost
     db.session.commit()
-    return jsonify({'message': 'Deal updated successfully'}), 200
+
+    return jsonify({'message': 'Deal closed successfully'}), 200
+
+@deal_bp.route('/api/deals/forecast', methods=['GET'])
+@token_required
+def forecast_revenue(current_user):
+    # Forecast logic: Sum of amount for Open deals in the organization
+    total = db.session.query(
+        func.sum(Deal.amount)
+    ).filter(
+        Deal.organization_id == current_user.organization_id,
+        Deal.status == "Open"
+    ).scalar() or 0.0
+
+    return jsonify({"forecast_revenue": total}), 200

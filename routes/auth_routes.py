@@ -81,10 +81,14 @@ def send_email(to_email, subject, body):
                 print("   3. Remove spaces from the password in .env.")
             return False
 
-    # 2. No Mock Output (Requested for Security)
-    print(f"⚠️ SMTP not configured. OTP to {to_email} was NOT sent.\n   -> MAIL_USERNAME present: {bool(smtp_user)}\n   -> MAIL_PASSWORD present: {bool(smtp_password)}")
-    print(f"⚠️ SMTP not configured. OTP for {to_email} was NOT sent via email.")
-    print(f"   -> For development, the OTP is contained in the email body: {body}")
+    # 2. Dev Mode Output (Print to Console)
+    print(f"⚠️ SMTP not configured. Email to {to_email} was NOT sent via SMTP.")
+    print(f"   -> MAIL_USERNAME present: {bool(smtp_user)}")
+    print(f"   -> MAIL_PASSWORD present: {bool(smtp_password)}")
+    print(f"👇 EMAIL CONTENT (DEV MODE) 👇")
+    print(f"Subject: {subject}")
+    print(f"{body}")
+    print("--------------------------------------------------")
     return False
 
 def token_required(f):

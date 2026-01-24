@@ -20,17 +20,16 @@ class Lead(db.Model):
 class Deal(db.Model):
     __tablename__ = 'deals'
     id = db.Column(db.Integer, primary_key=True)
-    deal_name = db.Column(db.String(100))
-    amount = db.Column(db.Float)
-    stage = db.Column(db.String(50))
-    probability = db.Column(db.Integer)
+    title = db.Column(db.String(150), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    stage = db.Column(db.String(50), default="Prospecting")
+    status = db.Column(db.String(20), default="Open")
+    expected_close_date = db.Column(db.Date)
+    lead_id = db.Column(db.Integer, db.ForeignKey('leads.id'))
     owner_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    company_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
+    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    account_id = db.Column(db.Integer)
-    contact_id = db.Column(db.Integer)
-    status = db.Column(db.String(50))
-    closed_at = db.Column(db.DateTime)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class Activity(db.Model):
     __tablename__ = 'activities'

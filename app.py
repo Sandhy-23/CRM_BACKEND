@@ -115,21 +115,20 @@ with app.app_context():
 
             # 2. Fix Deals Table
             try:
-                connection.execute(text("SELECT deal_name FROM deals LIMIT 1"))
+                connection.execute(text("SELECT title FROM deals LIMIT 1"))
             except Exception:
-                print("⚠️ Column 'deal_name' not found in deals. Applying migrations...")
+                print("⚠️ Column 'title' not found in deals. Applying migrations...")
                 deal_cols = [
-                    ("deal_name", "VARCHAR(100)"),
-                    ("amount", "FLOAT"),
-                    ("stage", "VARCHAR(50)"),
-                    ("probability", "INTEGER"),
+                    ("title", "VARCHAR(150)"),
+                    ("amount", "FLOAT DEFAULT 0"),
+                    ("stage", "VARCHAR(50) DEFAULT 'Prospecting'"),
+                    ("status", "VARCHAR(20) DEFAULT 'Open'"),
+                    ("expected_close_date", "DATE"),
+                    ("lead_id", "INTEGER"),
                     ("owner_id", "INTEGER"),
-                    ("company_id", "INTEGER"),
+                    ("organization_id", "INTEGER"),
                     ("created_at", "DATETIME"),
-                    ("closed_at", "DATETIME"),
-                    ("status", "VARCHAR(50)"),
-                    ("account_id", "INTEGER"),
-                    ("contact_id", "INTEGER")
+                    ("updated_at", "DATETIME")
                 ]
                 for col_name, col_type in deal_cols:
                     try:
@@ -138,37 +137,6 @@ with app.app_context():
                     except Exception:
                         pass
                 connection.commit()
-
-            # 2.1 Fix Deals Table (Ensure account_id exists for Lead Conversion)
-            try:
-                connection.execute(text("SELECT account_id FROM deals LIMIT 1"))
-            except Exception:
-                print("⚠️ Column 'account_id' not found in deals. Adding it...")
-                try:
-                    connection.execute(text("ALTER TABLE deals ADD COLUMN account_id INTEGER"))
-                    connection.execute(text("ALTER TABLE deals ADD COLUMN contact_id INTEGER"))
-                    print("✔ Added columns: account_id, contact_id to deals")
-                    connection.commit()
-                except Exception:
-                    pass
-
-            # 3. Fix Leads Table (Drop 'name' column to resolve TypeError/IntegrityError conflict)
-            try:
-                connection.execute(text("SELECT name FROM leads LIMIT 1"))
-                print("⚠️ Column 'name' detected in leads table. Dropping it to match Lead model...")
-                connection.execute(text("ALTER TABLE leads DROP COLUMN name"))
-                print("✔ Dropped column: name from leads")
-            except Exception:
-                pass # Column likely doesn't exist, which is correct
-
-            # 4. Fix Deals Table (Drop 'title' column to resolve TypeError/IntegrityError conflict)
-            try:
-                connection.execute(text("SELECT title FROM deals LIMIT 1"))
-                print("ℹ️ Maintenance: Column 'title' detected in deals table. Dropping it to match Deal model...")
-                connection.execute(text("ALTER TABLE deals DROP COLUMN title"))
-                print("✔ Dropped column: title from deals")
-            except Exception:
-                pass 
 
             # 5. Fix Contacts Table (New Requirements)
             try:

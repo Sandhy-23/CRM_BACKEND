@@ -153,80 +153,33 @@ def update_lead(current_user, lead_id):
 @lead_bp.route('/api/leads/<int:lead_id>/convert', methods=['POST'])
 @token_required
 def convert_lead(current_user, lead_id):
+    print(f"🔍 [DEBUG] Attempting to convert Lead ID: {lead_id} for User: {current_user.email} (Org: {current_user.organization_id})")
+    
     lead = get_lead_query(current_user).filter_by(id=lead_id).first()
+
     if not lead:
-        return jsonify({'message': 'Lead not found'}), 404
-        
-    if lead.status == 'Converted':
-        return jsonify({'message': 'Lead is already converted'}), 400
+        print(f"❌ [DEBUG] Lead {lead_id} not found or access denied.")
+        return jsonify({"error": f"Lead {lead_id} not found or you do not have permission to access it."}), 404
 
-    # --- Pre-conversion validation for Contact creation ---
-    if not lead.email or not lead.mobile:
-        return jsonify({'message': 'Cannot convert lead. Contact requires both an email and a mobile number.'}), 400
-
-    # Check for duplicate contact before creating
-    existing_contact = Contact.query.filter(
-        Contact.organization_id == lead.company_id,
-        or_(Contact.email == lead.email, Contact.mobile == lead.mobile)
-    ).first()
-    if existing_contact:
-        return jsonify({'message': f'A contact with this email or mobile already exists (ID: {existing_contact.id}). Cannot convert lead.'}), 409
-
-    # 1. Create Account (Company)
-    new_account = Account(
-        account_name=lead.company,
-        phone=lead.phone,
+    # Create Deal from Lead
+    new_deal = Deal(
+        title=f"{lead.first_name} {lead.last_name}",
+        amount=0, # Default
+        stage="New",
+        lead_id=lead.id,
         owner_id=lead.owner_id,
         organization_id=lead.company_id
     )
-    db.session.add(new_account)
-    db.session.flush() # Get ID
 
-    # 2. Create Contact
-    new_contact = Contact(
-        first_name=lead.first_name,
-        last_name=lead.last_name,
-        name=f"{lead.first_name or ''} {lead.last_name}".strip(), # Keep for compatibility if needed
-        email=lead.email,
-        phone=lead.phone,
-        mobile=lead.mobile,
-        company=lead.company,
-        assigned_to=lead.owner_id,
-        organization_id=lead.company_id,
-        status='Active'
-    )
-    db.session.add(new_contact)
-    db.session.flush()
+    # Update Lead status
+    lead.status = "Converted"
 
-    # 3. Create Deal
-    new_deal = Deal(
-        deal_name=f"{lead.company} Deal",
-        amount=0, # Default
-        stage="New",
-        probability=10,
-        owner_id=lead.owner_id,
-        # account_id=new_account.id, # Assuming Deal model has account_id
-        # contact_id=new_contact.id,
-        created_at=datetime.utcnow()
-    )
-    # Manually set IDs if model doesn't have them explicitly defined in context
-    new_deal.account_id = new_account.id
-    new_deal.contact_id = new_contact.id
-    new_deal.company_id = lead.company_id # Organization
-    
     db.session.add(new_deal)
-
-    # 4. Update Lead
-    lead.status = 'Converted'
     
     db.session.commit()
     
-    log_activity(current_user.id, f"Converted Lead: {lead.last_name}", "Lead", lead.id)
-    
     return jsonify({
         'message': 'Lead converted successfully',
-        'account_id': new_account.id,
-        'contact_id': new_contact.id,
         'deal_id': new_deal.id
     }), 200
 

@@ -19,7 +19,7 @@ def verify_data():
         print(f"\n👤 Users ({len(users)} found):")
         for u in users:
             org_name = u.organization.name if u.organization else "None"
-            print(f"   [ID: {u.id}] {u.name} ({u.email}) | Role: {u.role} | Org: {org_name}")
+            print(f"   [ID: {u.id}] {u.name} ({u.email}) | Role: {u.role} | Org ID: {u.organization_id} ({org_name})")
 
         # 3. Contacts
         contacts = Contact.query.all()
@@ -31,7 +31,7 @@ def verify_data():
         leads = Lead.query.all()
         print(f"\n💼 Leads ({len(leads)} found):")
         for l in leads:
-            print(f"   [ID: {l.id}] {l.first_name} {l.last_name} | Company: {l.company} | Status: {l.status}")
+            print(f"   [ID: {l.id}] {l.first_name} {l.last_name} | Org ID: {l.company_id} | Status: {l.status}")
 
         print("\n✅ Verification Complete.")
 

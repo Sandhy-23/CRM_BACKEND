@@ -294,10 +294,16 @@ def create_employee(current_user):
     if current_user.role == "SUPER_ADMIN":
         org_id = data.get("organization_id") # Super Admin must specify org or logic needs to handle it
 
+    # Auto-verify users created via Dashboard/API (Trusted internal creation)
+    is_verified = True
+
+    # Capture raw password for email notification
+    raw_password = data.get("password", "Password@123")
+
     new_user = User(
         name=data.get("name"),
         email=email,
-        password=generate_password_hash(data.get("password", "Password@123")), # Default password
+        password=generate_password_hash(raw_password),
         phone=data.get("phone"),
         department=data.get("department"),
         designation=data.get("designation"),
@@ -305,15 +311,34 @@ def create_employee(current_user):
         status=data.get("status", "Active"),
         date_of_joining=doj,
         is_approved=True, # Admin created users are auto-approved
+        is_verified=is_verified,
         organization_id=org_id
     )
 
     db.session.add(new_user)
     db.session.commit()
 
-    # Email Notification for new Admin
-    if role == 'ADMIN':
-        send_email(email, "You have been made an Admin", "The Super Admin has created an Admin account for you. You can now login to the CRM.")
+    # Email Notification with Credentials
+    subject = "Your CRM Login Credentials"
+    creator_title = "Super Admin" if current_user.role == "SUPER_ADMIN" else "Administrator"
+    
+    body = f"""Hello {new_user.name},
+
+Your CRM account has been created by the {creator_title}.
+
+Here are your login details:
+
+Login URL: http://localhost:3000/login
+Email: {email}
+Password: {raw_password}
+Role: {role}
+
+Please change your password after your first login.
+
+Regards,
+CRM Team"""
+
+    send_email(email, subject, body)
 
     return jsonify({"message": "Employee created successfully", "id": new_user.id}), 201
 

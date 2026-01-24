@@ -189,8 +189,8 @@ def export_data(current_user, module):
         records = get_deal_query(current_user).all()
         if records:
             data = [{
-                "id": d.id, "deal_name": d.deal_name, "amount": d.amount,
-                "stage": d.stage, "owner_id": d.owner_id, "company_id": d.company_id,
+                "id": d.id, "title": d.title, "amount": d.amount,
+                "stage": d.stage, "owner_id": d.owner_id, "organization_id": d.organization_id,
                 "created_at": d.created_at.isoformat() if d.created_at else None
             } for d in records]
             df = pd.DataFrame(data)
