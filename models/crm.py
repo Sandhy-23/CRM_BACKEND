@@ -30,6 +30,10 @@ class Deal(db.Model):
     organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    outcome = db.Column(db.String(10))
+    win_reason = db.Column(db.String(100))
+    loss_reason = db.Column(db.String(100))
+    closed_at = db.Column(db.DateTime)
 
 class Activity(db.Model):
     __tablename__ = 'activities'

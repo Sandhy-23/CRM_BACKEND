@@ -856,6 +856,140 @@
 			]
 		},
 		{
+			"name": "Pipelines",
+			"item": [
+				{
+					"name": "Create Pipeline",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Enterprise Sales Pipeline\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/pipelines",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "pipelines" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Add Stages",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"stages\": [\n    \"Lead In\",\n    \"Demo\",\n    \"Proposal\",\n    \"Negotiation\",\n    \"Won\",\n    \"Lost\"\n  ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/pipelines/1/stages",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "pipelines", "1", "stages" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Pipelines",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/pipelines",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "pipelines" ]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Tasks",
+			"item": [
+				{
+					"name": "Create Task",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"title\": \"Follow up call\",\n  \"description\": \"Call customer regarding proposal\",\n  \"due_date\": \"2026-01-28\",\n  \"priority\": \"High\",\n  \"assigned_to\": 1,\n  \"lead_id\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/tasks",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "tasks" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "My Tasks",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/tasks/my",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "tasks", "my" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Tasks by Lead",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/leads/1/tasks",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "leads", "1", "tasks" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Tasks by Deal",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/deals/1/tasks",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "deals", "1", "tasks" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Complete Task",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/tasks/1/complete",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "tasks", "1", "complete" ]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
 			"name": "6. Deals (CRM)",
 			"item": [
 				{
@@ -866,7 +1000,7 @@
 						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"title\": \"Website Project\",\n    \"amount\": 50000,\n    \"lead_id\": 1,\n    \"expected_close_date\": \"2026-02-15\"\n}"
+							"raw": "{\n    \"title\": \"Website Project\",\n    \"amount\": 50000,\n    \"lead_id\": 1,\n    \"expected_close_date\": \"2026-02-15\",\n    \"pipeline_id\": 1,\n    \"stage_id\": 2\n}"
 						},
 						"url": {
 							"raw": "http://127.0.0.1:5000/api/deals",
@@ -902,7 +1036,7 @@
 						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"stage\": \"Negotiation\"\n}"
+							"raw": "{\n  \"stage_id\": 4\n}"
 						},
 						"url": {
 							"raw": "http://127.0.0.1:5000/api/deals/1/stage",
@@ -930,6 +1064,74 @@
 							"host": [ "127", "0", "0", "1" ],
 							"port": "5000",
 							"path": [ "api", "deals", "1", "close" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Close Deal (Detailed)",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"outcome\": \"WON\",\n  \"reason\": \"Best price\"\n}"
+						},
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/deals/1/close",
+							"protocol": "http",
+							"host": [ "127", "0", "0", "1" ],
+							"port": "5000",
+							"path": [ "api", "deals", "1", "close" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Win/Loss Summary",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/analytics/win-loss",
+							"protocol": "http",
+							"host": [ "127", "0", "0", "1" ],
+							"port": "5000",
+							"path": [ "api", "analytics", "win-loss" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Win Reasons",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/analytics/win-reasons",
+							"protocol": "http",
+							"host": [ "127", "0", "0", "1" ],
+							"port": "5000",
+							"path": [ "api", "analytics", "win-reasons" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Loss Reasons",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://127.0.0.1:5000/api/analytics/loss-reasons",
+							"protocol": "http",
+							"host": [ "127", "0", "0", "1" ],
+							"port": "5000",
+							"path": [ "api", "analytics", "loss-reasons" ]
 						}
 					},
 					"response": []

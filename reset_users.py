@@ -13,6 +13,8 @@ try: from models.contact import Contact
 except ImportError: Contact = None
 try: from models.attendance import Attendance
 except ImportError: Attendance = None
+try: from models.pipeline import Pipeline, PipelineStage
+except ImportError: Pipeline = PipelineStage = None
 try: from models.crm import Lead, Deal, Activity, Ticket, Campaign
 except ImportError: Lead = Deal = Activity = Ticket = Campaign = None
 
@@ -37,6 +39,10 @@ def reset_users():
             safe_delete(Attendance)
             safe_delete(Task)
             safe_delete(Contact)
+            
+            # Pipeline tables
+            safe_delete(PipelineStage)
+            safe_delete(Pipeline)
             
             # CRM tables
             safe_delete(Lead)

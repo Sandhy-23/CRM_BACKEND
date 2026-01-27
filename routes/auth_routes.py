@@ -3,6 +3,7 @@ from extensions import db
 from models.user import User, LoginHistory
 from models.organization import Organization
 from models.otp_verification import OtpVerification
+from models.pipeline import Pipeline, PipelineStage
 from flask_jwt_extended import create_access_token, verify_jwt_in_request, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
 import datetime
@@ -196,13 +197,14 @@ def verify_otp():
         return jsonify({"error": "Email and OTP are required"}), 400
 
     # 1. Check DB Storage
+    print(f"🔍 Verifying OTP for: '{email}'")
     record = OtpVerification.query.filter_by(email=email).first()
     
     if not record:
         # UX Improvement: Check if user is already in DB to give better error
         if User.query.filter_by(email=email).first():
              return jsonify({"error": "User already registered. Please use the Login endpoint."}), 400
-        return jsonify({"error": "No pending signup found or OTP expired."}), 400
+        return jsonify({"error": "No pending signup found. Check for typos or sign up again."}), 400
 
     # 2. Validate OTP and Expiry
     if record.otp != otp:
@@ -220,19 +222,24 @@ def verify_otp():
         return jsonify({"message": "User already verified. Please login."}), 200
 
     # Determine Role: First user is SUPER_ADMIN. Subsequent public signups are regular users.
+    org_id = None
+    new_org = None
     if User.query.count() == 0:
         role = "SUPER_ADMIN"
+        # Create a new Organization for the first user.
+        org_name = f"{record.name}'s Organization" if record.name else f"{email.split('@')[0]}'s Org"
+        new_org = Organization(
+            name=org_name,
+            created_by=None # Will be set after user is created
+        )
+        db.session.add(new_org)
+        db.session.flush() # This is needed to get the ID for the user object.
+        org_id = new_org.id
     else:
         role = "USER"
-
-    # Create a new Organization for this new user.
-    org_name = f"{record.name}'s Organization" if record.name else f"{email.split('@')[0]}'s Org"
-    new_org = Organization(
-        name=org_name,
-        created_by=None # Will be set after user is created
-    )
-    db.session.add(new_org)
-    db.session.flush() # This is needed to get the ID for the user object.
+        # Subsequent public signups do not get an organization automatically.
+        # An Admin must invite or assign them.
+        org_id = None
 
     new_user = User(
         name=record.name,
@@ -241,7 +248,7 @@ def verify_otp():
         role=role,
         is_verified=True,
         status="Active",
-        organization_id=new_org.id
+        organization_id=org_id
     )
 
     try:
@@ -250,8 +257,20 @@ def verify_otp():
         db.session.commit()
         
         # Now that user exists, link them as the creator of the org
-        new_org.created_by = new_user.id
-        db.session.commit()
+        if new_org:
+            new_org.created_by = new_user.id
+            db.session.commit()
+
+            # --- Auto-Create Default Pipeline ---
+            default_pipeline = Pipeline(name="Standard Pipeline", company_id=new_org.id, is_default=True)
+            db.session.add(default_pipeline)
+            db.session.flush()
+            
+            stages = ["New", "Qualified", "Proposal", "Negotiation", "Won", "Lost"]
+            for idx, s_name in enumerate(stages):
+                db.session.add(PipelineStage(pipeline_id=default_pipeline.id, name=s_name, stage_order=idx+1))
+            db.session.commit()
+        # ------------------------------------
 
         print(f"✅ User created successfully: {email} (Role: {role})")
         return jsonify({"message": "Signup successful"}), 200

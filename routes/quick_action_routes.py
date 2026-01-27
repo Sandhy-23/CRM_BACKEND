@@ -39,7 +39,7 @@ def quick_add_task(current_user):
         status='Pending',
         created_by=current_user.id,
         created_at=datetime.utcnow(),
-        organization_id=current_user.organization_id
+        company_id=current_user.organization_id
     )
     db.session.add(new_task)
     db.session.commit()

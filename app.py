@@ -7,6 +7,9 @@ from routes import auth_bp, social_bp, website_bp, dashboard_bp, plan_bp, quick_
 from routes.import_export_routes import import_export_bp
 from routes.chart_routes import chart_bp
 from routes.organization_routes import organization_bp
+from routes.analytics_routes import analytics_bp
+from routes.pipeline_routes import pipeline_bp
+from routes.task_routes import task_bp
 from config import Config
 import models
 from dotenv import load_dotenv
@@ -33,6 +36,9 @@ app.register_blueprint(deal_bp)
 app.register_blueprint(import_export_bp, url_prefix="/api")
 app.register_blueprint(note_file_bp)
 app.register_blueprint(organization_bp, url_prefix="/api")
+app.register_blueprint(analytics_bp)
+app.register_blueprint(pipeline_bp, url_prefix="/api")
+app.register_blueprint(task_bp)
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):
@@ -43,6 +49,13 @@ def handle_integrity_error(e):
 @app.errorhandler(405)
 def handle_method_not_allowed(e):
     return jsonify({"error": "Method not allowed", "message": "The method is not allowed for the requested URL."}), 405
+
+# --- Monkey Patch Deal Model (Since models/crm.py is not editable) ---
+from models.crm import Deal
+if not hasattr(Deal, 'pipeline_id'):
+    Deal.pipeline_id = db.Column(db.Integer)
+    Deal.stage_id = db.Column(db.Integer)
+# ---------------------------------------------------------------------
 
 with app.app_context():
     # db.drop_all() # Uncomment this ONLY if you need to reset the DB completely
@@ -85,6 +98,17 @@ with app.app_context():
     except Exception as e:
         print(f"Migration Error: {e}")
     
+    # --- Fix Users with NULL Organization ID ---
+    try:
+        with db.engine.connect() as connection:
+            # If users exist with NULL org_id, assign them to the first organization found (Dev Fix)
+            connection.execute(text("UPDATE users SET organization_id = (SELECT id FROM organizations LIMIT 1) WHERE organization_id IS NULL"))
+            connection.commit()
+            # print("✔ Fixed users with missing organization_id")
+    except Exception as e:
+        print(f"Data Fix Error: {e}")
+    # -------------------------------------------
+
     # --- Auto-Migration for Leads & Deals (Fix for missing columns) ---
     try:
         with db.engine.connect() as connection:
@@ -131,6 +155,38 @@ with app.app_context():
                     ("updated_at", "DATETIME")
                 ]
                 for col_name, col_type in deal_cols:
+                    try:
+                        connection.execute(text(f"ALTER TABLE deals ADD COLUMN {col_name} {col_type}"))
+                        print(f"✔ Added column: {col_name} to deals")
+                    except Exception:
+                        pass
+                connection.commit()
+
+            # 2.2 Fix Deals Table (Pipelines)
+            try:
+                connection.execute(text("SELECT pipeline_id FROM deals LIMIT 1"))
+            except Exception:
+                print("⚠️ Column 'pipeline_id' not found in deals. Applying migrations...")
+                try:
+                    connection.execute(text("ALTER TABLE deals ADD COLUMN pipeline_id INTEGER"))
+                    connection.execute(text("ALTER TABLE deals ADD COLUMN stage_id INTEGER"))
+                    print("✔ Added columns: pipeline_id, stage_id to deals")
+                    connection.commit()
+                except Exception as e:
+                    print(f"Error adding pipeline columns: {e}")
+
+            # 2.1 Fix Deals Table (Win/Loss Analytics)
+            try:
+                connection.execute(text("SELECT outcome FROM deals LIMIT 1"))
+            except Exception:
+                print("⚠️ Column 'outcome' not found in deals. Applying analytics migrations...")
+                analytics_cols = [
+                    ("outcome", "VARCHAR(10)"),
+                    ("win_reason", "VARCHAR(100)"),
+                    ("loss_reason", "VARCHAR(100)"),
+                    ("closed_at", "DATETIME")
+                ]
+                for col_name, col_type in analytics_cols:
                     try:
                         connection.execute(text(f"ALTER TABLE deals ADD COLUMN {col_name} {col_type}"))
                         print(f"✔ Added column: {col_name} to deals")
@@ -202,6 +258,38 @@ with app.app_context():
             print("✅ Database migration complete.")
     except Exception as e:
         print(f"CRM Migration Error: {e}")
+
+    # --- Auto-Migration for Tasks Table ---
+    try:
+        with db.engine.connect() as connection:
+            # Check for 'company_id' (New Schema)
+            try:
+                connection.execute(text("SELECT company_id FROM tasks LIMIT 1"))
+            except Exception:
+                print("⚠️ Column 'company_id' not found in tasks. Applying migrations...")
+                task_cols = [
+                    ("company_id", "INTEGER"),
+                    ("priority", "VARCHAR(20) DEFAULT 'Medium'"),
+                    ("lead_id", "INTEGER"),
+                    ("deal_id", "INTEGER"),
+                    ("updated_at", "DATETIME")
+                ]
+                for col_name, col_type in task_cols:
+                    try:
+                        connection.execute(text(f"ALTER TABLE tasks ADD COLUMN {col_name} {col_type}"))
+                        print(f"✔ Added column: {col_name} to tasks")
+                    except Exception:
+                        pass
+                
+                # Migrate data from old 'organization_id' if it exists
+                try:
+                    connection.execute(text("UPDATE tasks SET company_id = organization_id WHERE company_id IS NULL"))
+                    print("✔ Migrated organization_id to company_id for existing tasks")
+                except Exception:
+                    pass
+                connection.commit()
+    except Exception as e:
+        print(f"Task Migration Error: {e}")
 
     # --- Seeding Script ---
     if not models.Plan.query.first():

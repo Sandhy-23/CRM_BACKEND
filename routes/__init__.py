@@ -9,3 +9,5 @@ from .lead_routes import lead_bp
 from .deal_routes import deal_bp
 from .note_file_routes import note_file_bp
 from .organization_routes import organization_bp
+from .analytics_routes import analytics_bp
+from .task_routes import task_bp

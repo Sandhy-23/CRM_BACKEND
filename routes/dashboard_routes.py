@@ -292,7 +292,7 @@ def create_employee(current_user):
     # Organization Logic
     org_id = current_user.organization_id
     if current_user.role == "SUPER_ADMIN":
-        org_id = data.get("organization_id") # Super Admin must specify org or logic needs to handle it
+        org_id = data.get("organization_id") or current_user.organization_id
 
     # Auto-verify users created via Dashboard/API (Trusted internal creation)
     is_verified = True
@@ -535,7 +535,7 @@ def dashboard_task_stats(current_user):
     elif current_user.role in ['ADMIN', 'HR']:
         # Filter by organization if applicable
         if current_user.organization_id:
-            query = query.filter(Task.organization_id == current_user.organization_id)
+            query = query.filter(Task.company_id == current_user.organization_id)
         
     stats = query.all()
     return jsonify({status: count for status, count in stats})
