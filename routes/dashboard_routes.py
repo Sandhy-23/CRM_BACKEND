@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash
 from models.attendance import Attendance
 from models.activity_log import ActivityLog
+from utils.activity_logger import log_activity
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -184,9 +185,14 @@ def update_profile(current_user, org_name):
     new_name = data.get("name")
 
     if new_name:
-        current_user.name = new_name
-        db.session.commit()
-        return jsonify({"message": "Profile updated successfully", "name": current_user.name}), 200
+        try:
+            current_user.name = new_name
+            db.session.commit()
+            return jsonify({"message": "Profile updated successfully", "name": current_user.name}), 200
+        except Exception as e:
+            db.session.rollback()
+            print(f"❌ DB ERROR in update_profile: {str(e)}")
+            return jsonify({"error": "Database error", "message": str(e)}), 500
     
     return jsonify({"message": "No changes provided"}), 400
 
@@ -315,8 +321,19 @@ def create_employee(current_user):
         organization_id=org_id
     )
 
-    db.session.add(new_user)
-    db.session.commit()
+    try:
+        db.session.add(new_user)
+        db.session.commit()
+        log_activity(
+            module="user",
+            action="created",
+            description=f"User '{new_user.name}' ({new_user.email}) created with role '{new_user.role}'.",
+            related_id=new_user.id
+        )
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ DB ERROR in create_employee: {str(e)}")
+        return jsonify({"error": "Database error", "message": str(e)}), 500
 
     # Email Notification with Credentials
     subject = "Your CRM Login Credentials"
@@ -418,8 +435,19 @@ def update_employee(current_user, user_id):
         if "date_of_joining" in data and data["date_of_joining"]:
              user.date_of_joining = datetime.fromisoformat(data["date_of_joining"].replace("Z", "+00:00"))
 
-    db.session.commit()
-    return jsonify({"message": "Employee updated successfully"}), 200
+    try:
+        db.session.commit()
+        log_activity(
+            module="user",
+            action="updated",
+            description=f"User '{user.name}' (ID: {user.id}) profile was updated.",
+            related_id=user.id
+        )
+        return jsonify({"message": "Employee updated successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ DB ERROR in update_employee: {str(e)}")
+        return jsonify({"error": "Database error", "message": str(e)}), 500
 
 @dashboard_bp.route("/employees/<int:user_id>", methods=["DELETE"])
 @token_required
@@ -439,9 +467,20 @@ def delete_employee(current_user, user_id):
     if current_user.role != "SUPER_ADMIN" and user.organization_id != current_user.organization_id:
         return jsonify({"message": "Unauthorized to delete user from another organization"}), 403
 
-    db.session.delete(user)
-    db.session.commit()
-    return jsonify({"message": "Employee deleted successfully"}), 200
+    try:
+        db.session.delete(user)
+        db.session.commit()
+        log_activity(
+            module="user",
+            action="deleted",
+            description=f"User '{user.name}' (ID: {user.id}) was deleted.",
+            related_id=user.id
+        )
+        return jsonify({"message": "Employee deleted successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ DB ERROR in delete_employee: {str(e)}")
+        return jsonify({"error": "Database error", "message": str(e)}), 500
 
 # --- ROLE SPECIFIC ENDPOINTS ---
 

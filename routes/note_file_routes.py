@@ -8,6 +8,7 @@ from models.user import User
 import os
 from werkzeug.utils import secure_filename
 from datetime import datetime
+from utils.activity_logger import log_activity
 
 note_file_bp = Blueprint('note_files', __name__)
 
@@ -110,10 +111,20 @@ def create_note(current_user):
         company_id=company_id
     )
     
-    db.session.add(new_note)
-    db.session.commit()
-    
-    return jsonify({'message': 'Note added successfully', 'note': new_note.to_dict()}), 201
+    try:
+        db.session.add(new_note)
+        db.session.commit()
+        log_activity(
+            module="note",
+            action="created",
+            description=f"Note added to {new_note.entity_type} ID: {new_note.entity_id}",
+            related_id=new_note.id
+        )
+        return jsonify({'message': 'Note added successfully', 'note': new_note.to_dict()}), 201
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ DB ERROR in create_note: {str(e)}")
+        return jsonify({'error': 'Database error', 'message': str(e)}), 500
 
 @note_file_bp.route('/api/notes', methods=['GET'])
 @token_required
@@ -149,9 +160,20 @@ def delete_note(current_user, note_id):
     if current_user.role not in ['SUPER_ADMIN', 'ADMIN'] and note.created_by != current_user.id:
         return jsonify({'error': 'Permission denied', 'message': 'Only the creator or Admin can delete this note'}), 403
 
-    db.session.delete(note)
-    db.session.commit()
-    return jsonify({'message': 'Note deleted successfully'}), 200
+    try:
+        db.session.delete(note)
+        db.session.commit()
+        log_activity(
+            module="note",
+            action="deleted",
+            description=f"Note ID {note_id} deleted from {note.entity_type} ID: {note.entity_id}",
+            related_id=note_id
+        )
+        return jsonify({'message': 'Note deleted successfully'}), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ DB ERROR in delete_note: {str(e)}")
+        return jsonify({'error': 'Database error', 'message': str(e)}), 500
 
 # --- FILES APIs ---
 
@@ -215,10 +237,20 @@ def upload_file(current_user):
         company_id=company_id
     )
     
-    db.session.add(new_file)
-    db.session.commit()
-    
-    return jsonify({'message': 'File uploaded successfully', 'file': new_file.to_dict()}), 201
+    try:
+        db.session.add(new_file)
+        db.session.commit()
+        log_activity(
+            module="file",
+            action="uploaded",
+            description=f"File '{new_file.file_name}' uploaded to {new_file.entity_type} ID: {new_file.entity_id}",
+            related_id=new_file.id
+        )
+        return jsonify({'message': 'File uploaded successfully', 'file': new_file.to_dict()}), 201
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ DB ERROR in upload_file: {str(e)}")
+        return jsonify({'error': 'Database error', 'message': str(e)}), 500
 
 @note_file_bp.route('/api/files', methods=['GET'])
 @token_required
@@ -277,7 +309,17 @@ def delete_file(current_user, file_id):
         except Exception as e:
             print(f"Error deleting file from disk: {e}")
 
-    db.session.delete(file_record)
-    db.session.commit()
-    
-    return jsonify({'message': 'File deleted successfully'}), 200
+    try:
+        db.session.delete(file_record)
+        db.session.commit()
+        log_activity(
+            module="file",
+            action="deleted",
+            description=f"File '{file_record.file_name}' (ID: {file_id}) deleted from {file_record.entity_type} ID: {file_record.entity_id}",
+            related_id=file_id
+        )
+        return jsonify({'message': 'File deleted successfully'}), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ DB ERROR in delete_file: {str(e)}")
+        return jsonify({'error': 'Database error', 'message': str(e)}), 500

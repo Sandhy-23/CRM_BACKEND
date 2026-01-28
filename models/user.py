@@ -8,7 +8,7 @@ class User(db.Model):
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
-    role = db.Column(db.String(20), default="User") # Admin, Manager, Sales, Support
+    role = db.Column(db.String(20), nullable=False) # e.g., SUPER_ADMIN, ADMIN, USER
     is_approved = db.Column(db.Boolean, default=False)
     phone = db.Column(db.String(20))
     department = db.Column(db.String(50))

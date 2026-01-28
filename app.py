@@ -1,9 +1,9 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, g
 from flask_cors import CORS
 from extensions import db, jwt
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
-from routes import auth_bp, social_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp, lead_bp, deal_bp, note_file_bp
+from routes import auth_bp, social_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp, lead_bp, deal_bp, note_file_bp, calendar_bp, activity_bp
 from routes.import_export_routes import import_export_bp
 from routes.chart_routes import chart_bp
 from routes.organization_routes import organization_bp
@@ -12,13 +12,44 @@ from routes.pipeline_routes import pipeline_bp
 from routes.task_routes import task_bp
 from config import Config
 import models
+from flask_jwt_extended import get_jwt, verify_jwt_in_request
+from models.calendar_event import CalendarEvent
+from models.reminder import Reminder
 from dotenv import load_dotenv
 load_dotenv()
 
 
 app = Flask(__name__)
 app.config.from_object(Config)
-CORS(app)
+print(f"✅ Database URI: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
+CORS(
+    app,
+    resources={r"/*": {"origins": "*"}},
+    supports_credentials=True
+)
+
+@app.before_request
+def load_user_context_from_token():
+    """
+    Load user context (user_id, company_id, role) from JWT into Flask's g object.
+    This runs before every request, making user context globally available.
+    """
+    try:
+        # Use optional=True to not fail on public routes
+        verify_jwt_in_request(optional=True)
+        claims = get_jwt()
+        if claims:
+            g.user_id = int(claims.get('sub'))
+            g.company_id = claims.get('organization_id')
+            g.role = claims.get('role')
+        else:
+            g.user_id = None
+            g.company_id = None
+            g.role = None
+    except Exception:
+        g.user_id = None
+        g.company_id = None
+        g.role = None
 
 db.init_app(app)
 jwt.init_app(app)
@@ -39,6 +70,8 @@ app.register_blueprint(organization_bp, url_prefix="/api")
 app.register_blueprint(analytics_bp)
 app.register_blueprint(pipeline_bp, url_prefix="/api")
 app.register_blueprint(task_bp)
+app.register_blueprint(calendar_bp, url_prefix="/api")
+app.register_blueprint(activity_bp, url_prefix="/api")
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):
@@ -166,14 +199,24 @@ with app.app_context():
             try:
                 connection.execute(text("SELECT pipeline_id FROM deals LIMIT 1"))
             except Exception:
-                print("⚠️ Column 'pipeline_id' not found in deals. Applying migrations...")
+                print("⚠️ Column 'pipeline_id' not found in deals. Adding column...")
                 try:
                     connection.execute(text("ALTER TABLE deals ADD COLUMN pipeline_id INTEGER"))
-                    connection.execute(text("ALTER TABLE deals ADD COLUMN stage_id INTEGER"))
-                    print("✔ Added columns: pipeline_id, stage_id to deals")
+                    print("✔ Added column: pipeline_id to deals")
                     connection.commit()
                 except Exception as e:
-                    print(f"Error adding pipeline columns: {e}")
+                    print(f"Error adding pipeline_id column: {e}")
+
+            try:
+                connection.execute(text("SELECT stage_id FROM deals LIMIT 1"))
+            except Exception:
+                print("⚠️ Column 'stage_id' not found in deals. Adding column...")
+                try:
+                    connection.execute(text("ALTER TABLE deals ADD COLUMN stage_id INTEGER"))
+                    print("✔ Added column: stage_id to deals")
+                    connection.commit()
+                except Exception as e:
+                    print(f"Error adding stage_id column: {e}")
 
             # 2.1 Fix Deals Table (Win/Loss Analytics)
             try:
@@ -252,6 +295,27 @@ with app.app_context():
                         connection.execute(text(f"ALTER TABLE otp_verifications ADD COLUMN {col_name} {col_type}"))
                         print(f"✔ Added column: {col_name} to otp_verifications")
                     except Exception:
+                        pass
+                connection.commit()
+
+            # 8. Fix Activity Logs Table
+            try:
+                connection.execute(text("SELECT module FROM activity_logs LIMIT 1"))
+            except Exception:
+                print("⚠️ Column 'module' not found in activity_logs. Applying migrations...")
+                log_cols = [
+                    ("module", "VARCHAR(50)"),
+                    ("description", "TEXT"),
+                    ("related_id", "INTEGER"),
+                    ("company_id", "INTEGER"),
+                    ("created_at", "DATETIME")
+                ]
+                for col_name, col_type in log_cols:
+                    try:
+                        connection.execute(text(f"ALTER TABLE activity_logs ADD COLUMN {col_name} {col_type}"))
+                        print(f"✔ Added column: {col_name} to activity_logs")
+                    except Exception:
+                        # Column might already exist if a previous migration was partial
                         pass
                 connection.commit()
 

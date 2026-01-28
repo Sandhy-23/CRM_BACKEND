@@ -1155,6 +1155,172 @@
 			]
 		},
 		{
+			"name": "Activity Timeline",
+			"item": [
+				{
+					"name": "Get Activity Timeline",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/activity-timeline",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"activity-timeline"
+							]
+						},
+						"description": "Fetches the recent activity timeline for the user's company."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Calendar & Reminders",
+			"item": [
+				{
+					"name": "Create Event",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"Follow-up call with Acme Inc\",\n    \"description\": \"Discuss the new proposal.\",\n    \"event_type\": \"Call\",\n    \"start_datetime\": \"2026-02-10T14:00:00Z\",\n    \"end_datetime\": \"2026-02-10T14:30:00Z\",\n    \"related_type\": \"deal\",\n    \"related_id\": 1,\n    \"assigned_to\": 1,\n    \"remind_before_minutes\": 15\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/calendar/events",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"calendar",
+								"events"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Events",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/calendar/events",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"calendar",
+								"events"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Today's Reminders",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/reminders/today",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"reminders",
+								"today"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Mark Reminder as Sent",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/reminders/1/sent",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"reminders",
+								"1",
+								"sent"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
 			"name": "7. Dashboard Widgets",
 			"item": [
 				{

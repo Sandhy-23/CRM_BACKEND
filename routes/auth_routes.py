@@ -179,8 +179,13 @@ def signup():
         password_hash=generate_password_hash(password),
         expiry=expiry
     )
-    db.session.add(verification_entry)
-    db.session.commit()
+    try:
+        db.session.add(verification_entry)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ DB ERROR in signup: {str(e)}")
+        return jsonify({"error": "Database error", "message": str(e)}), 500
     
     # Send OTP (Logs to console if SMTP not set)
     send_email(email, "Signup OTP", f"Your OTP is: {otp}")
@@ -211,35 +216,34 @@ def verify_otp():
         return jsonify({"error": "Invalid OTP"}), 400
     
     if datetime.datetime.utcnow() > record.expiry:
-        db.session.delete(record)
-        db.session.commit()
+        try:
+            db.session.delete(record)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"❌ DB ERROR in verify_otp (expiry cleanup): {str(e)}")
         return jsonify({"error": "OTP has expired"}), 400
 
     # 3. Create User in Database
     if User.query.filter_by(email=email).first():
-        db.session.delete(record)
-        db.session.commit()
+        try:
+            db.session.delete(record)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"❌ DB ERROR in verify_otp (cleanup existing): {str(e)}")
         return jsonify({"message": "User already verified. Please login."}), 200
 
-    # Determine Role: First user is SUPER_ADMIN. Subsequent public signups are regular users.
-    org_id = None
-    new_org = None
-    if User.query.count() == 0:
-        role = "SUPER_ADMIN"
-        # Create a new Organization for the first user.
-        org_name = f"{record.name}'s Organization" if record.name else f"{email.split('@')[0]}'s Org"
-        new_org = Organization(
-            name=org_name,
-            created_by=None # Will be set after user is created
-        )
-        db.session.add(new_org)
-        db.session.flush() # This is needed to get the ID for the user object.
-        org_id = new_org.id
-    else:
-        role = "USER"
-        # Subsequent public signups do not get an organization automatically.
-        # An Admin must invite or assign them.
-        org_id = None
+    # Every new signup is a SUPER_ADMIN with their own organization.
+    role = "SUPER_ADMIN"
+    org_name = f"{record.name}'s Organization" if record.name else f"{email.split('@')[0]}'s Org"
+    new_org = Organization(
+        name=org_name,
+        created_by=None # Will be set after user is created
+    )
+    db.session.add(new_org)
+    db.session.flush() # This is needed to get the ID for the user object.
+    org_id = new_org.id
 
     new_user = User(
         name=record.name,
@@ -322,8 +326,13 @@ def login():
     
     # Log Activity
     log = LoginHistory(user_id=user.id, login_time=datetime.datetime.utcnow(), ip_address=request.remote_addr, status="Success")
-    db.session.add(log)
-    db.session.commit()
+    try:
+        db.session.add(log)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ DB ERROR in login (history): {str(e)}")
+        return jsonify({"error": "Database error logging login", "message": str(e)}), 500
 
     # 3. Determine Full Redirect URL
     full_url = construct_dashboard_url(user)
@@ -388,76 +397,97 @@ def facebook_login():
 def handle_oauth_login(email, name, provider, provider_id):
     """Shared logic for OAuth providers"""
     
-    # 1. Check if user exists
-    user = User.query.filter_by(email=email).first()
-    
-    if user:
-        # Update provider info if not set
-        if not user.provider or user.provider == 'email':
-            user.provider = provider
-            user.provider_id = provider_id
-            db.session.commit()
-    else:
-        # 2. Create New User
-        # Determine Role: Public OAuth is always SUPER_ADMIN (New Organization Owner)
-        role = "SUPER_ADMIN"
+    try:
+        # 1. Check if user exists
+        user = User.query.filter_by(email=email).first()
         
-        # Create Organization for the user (Requirement: Create or attach company_id)
-        # For simplicity, we create a new organization for every new OAuth user 
-        # unless logic dictates otherwise.
-        new_org = Organization(name=f"{name}'s Organization", subscription_plan="Free")
-        db.session.add(new_org)
-        db.session.flush() # Get ID
-        
-        user = User(
-            name=name,
-            email=email,
-            password=generate_password_hash(generate_otp()), # Random password
-            role=role,
-            is_verified=True,
-            status="Active",
-            provider=provider,
-            provider_id=provider_id,
-            organization_id=new_org.id
+        if user:
+            # Update provider info if not set
+            if not user.provider or user.provider == 'email':
+                user.provider = provider
+                user.provider_id = provider_id
+                db.session.commit()
+        else:
+            # 2. Create New User
+            # --- UNIFIED ROLE & ORG LOGIC ---
+            # Every new signup is a SUPER_ADMIN with their own organization.
+            role = "SUPER_ADMIN"
+            org_name = f"{name}'s Organization" if name else f"{email.split('@')[0]}'s Org"
+            new_org = Organization(name=org_name)
+            db.session.add(new_org)
+            db.session.flush() # Get ID
+            org_id = new_org.id
+            # --- END UNIFIED LOGIC ---
+            
+            user = User(
+                name=name,
+                email=email,
+                password=generate_password_hash(generate_otp()), # Random password
+                role=role,
+                is_verified=True,
+                status="Active",
+                provider=provider,
+                provider_id=provider_id,
+                organization_id=org_id
+            )
+            db.session.add(user)
+            db.session.flush() # Get user ID before commit
+
+            # Link user to the new org and create default pipeline if it's the first user
+            if new_org:
+                new_org.created_by = user.id
+                db.session.commit() # Commit to save user and org creator link
+
+                # --- Auto-Create Default Pipeline (Consistent with OTP flow) ---
+                default_pipeline = Pipeline(name="Standard Pipeline", company_id=new_org.id, is_default=True)
+                db.session.add(default_pipeline)
+                db.session.flush()
+                
+                stages = ["New", "Qualified", "Proposal", "Negotiation", "Won", "Lost"]
+                for idx, s_name in enumerate(stages):
+                    db.session.add(PipelineStage(pipeline_id=default_pipeline.id, name=s_name, stage_order=idx+1))
+                db.session.commit()
+            else:
+                db.session.commit() # Commit to save user if no org was created
+
+        # 3. Generate Token
+        access_token = create_access_token(
+            identity=str(user.id), 
+            additional_claims={
+                "email": user.email, 
+                "role": user.role,
+                "organization_id": user.organization_id
+            }
         )
-        db.session.add(user)
+        
+        # 4. Log Activity
+        log = LoginHistory(
+            user_id=user.id, 
+            login_time=datetime.datetime.utcnow(), 
+            ip_address=request.remote_addr, 
+            status="Success"
+        )
+        db.session.add(log)
         db.session.commit()
         
-    # 3. Generate Token
-    # Requirement: Token must include user_id, role, company_id
-    access_token = create_access_token(
-        identity=str(user.id), 
-        additional_claims={
-            "email": user.email, 
+        # 5. Generate Redirect URL
+        redirect_url = construct_dashboard_url(user)
+        
+        return jsonify({
+            "message": "Login successful",
+            "token": access_token,
             "role": user.role,
-            "organization_id": user.organization_id
-        }
-    )
-    
-    # 4. Log Activity
-    log = LoginHistory(
-        user_id=user.id, 
-        login_time=datetime.datetime.utcnow(), 
-        ip_address=request.remote_addr, 
-        status="Success"
-    )
-    db.session.add(log)
-    db.session.commit()
-    
-    # 5. Generate Redirect URL
-    redirect_url = construct_dashboard_url(user)
-    
-    return jsonify({
-        "message": "Login successful",
-        "token": access_token,
-        "role": user.role,
-        "redirect_url": redirect_url
-    }), 200
+            "redirect_url": redirect_url
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ DB ERROR in handle_oauth_login: {str(e)}")
+        return jsonify({"error": "Database error", "message": str(e)}), 500
 
 @auth_bp.route('/forgot-password', methods=['POST'])
 def forgot_password():
     data = request.get_json()
-    email = data.get('email')
+    email = data.get('email', '').strip().lower()
     
     user = User.query.filter_by(email=email).first()
     if not user:
@@ -474,8 +504,13 @@ def forgot_password():
         otp=otp,
         expiry=expiry
     )
-    db.session.add(reset_token_entry)
-    db.session.commit()
+    try:
+        db.session.add(reset_token_entry)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ DB ERROR in forgot_password: {str(e)}")
+        return jsonify({"error": "Database error", "message": str(e)}), 500
     
     if send_email(email, "Reset Password OTP", f"Your password reset OTP is {otp}"):
         return jsonify({"message": "If this email is registered, an OTP has been sent."}), 200
@@ -483,38 +518,50 @@ def forgot_password():
         # In a real app, you might not want to expose this failure.
         return jsonify({"error": "Failed to send password reset email."}), 500
 
-@auth_bp.route('/reset-password', methods=['POST'])
+@auth_bp.route('/reset-password', methods=['POST', 'OPTIONS'])
 def reset_password():
-    data = request.get_json()
-    email = data.get('email')
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+
+    data = request.get_json() or {}
+
+    email = data.get('email', '').strip().lower()
     otp = data.get('otp')
-    new_password = data.get('new_password')
-    confirm_password = data.get('confirm_password')
+    new_password = data.get("new_password") or data.get("newPassword")
+    confirm_password = data.get("confirm_password") or data.get("confirmPassword")
 
     if not all([email, otp, new_password, confirm_password]):
-        return jsonify({"error": "All fields (email, otp, new_password, confirm_password) are required"}), 400
+        print(f"❌ Reset Password Failed: Missing fields. Data received: {list(data.keys())}")
+        return jsonify({"error": "All fields (email, otp, newPassword/new_password, confirmPassword/confirm_password) are required"}), 400
 
     if new_password != confirm_password:
+        print("❌ Reset Password Failed: Passwords do not match.")
         return jsonify({"error": "Passwords do not match"}), 400
 
     user = User.query.filter_by(email=email).first()
     if not user:
+        print(f"❌ Reset Password Failed: User '{email}' not found.")
         return jsonify({"error": "Invalid request"}), 400
         
-    # Check OtpVerification table for the reset OTP
     record = OtpVerification.query.filter_by(email=email).first()
 
     if not record:
+        print(f"❌ Reset Password Failed: No OTP record found for '{email}'.")
         return jsonify({"error": "No pending password reset found or OTP expired."}), 400
 
     if record.otp != otp or datetime.datetime.utcnow() > record.expiry:
+        print(f"❌ Reset Password Failed: Invalid or expired OTP for '{email}'.")
         db.session.delete(record)
         db.session.commit()
         return jsonify({"error": "Invalid or expired OTP"}), 400
 
-    # OTP is valid, update the password
-    user.password = generate_password_hash(new_password)
-    db.session.delete(record) # Clear the used OTP from DB
-    db.session.commit()
-    
-    return jsonify({"message": "Password reset successfully"}), 200
+    try:
+        user.password = generate_password_hash(new_password)
+        db.session.delete(record)
+        db.session.commit()
+        print("✅ Password reset successful.")
+        return jsonify({"message": "Password reset successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ DB ERROR in reset_password: {str(e)}")
+        return jsonify({"error": "Database error", "message": str(e)}), 500

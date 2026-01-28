@@ -14,6 +14,7 @@ from models.user import User
 from routes.contact_routes import get_contact_query
 from routes.lead_routes import get_lead_query, Account
 from routes.deal_routes import get_deal_query
+from utils.activity_logger import log_activity
 
 import_export_bp = Blueprint('import_export', __name__)
 
@@ -80,6 +81,11 @@ def process_contact_import(df, current_user):
             failed_count += 1
 
     db.session.commit()
+    log_activity(
+        module="import",
+        action="contacts_imported",
+        description=f"Imported {imported_count} contacts. {failed_count} rows failed."
+    )
     return jsonify({
         "total_rows": len(df), "imported": imported_count, "failed": failed_count, "errors": errors
     }), 200
@@ -133,6 +139,11 @@ def process_lead_import(df, current_user):
             failed_count += 1
             
     db.session.commit()
+    log_activity(
+        module="import",
+        action="leads_imported",
+        description=f"Imported {imported_count} leads. {failed_count} rows failed."
+    )
     return jsonify({
         "total_rows": len(df), "imported": imported_count, "failed": failed_count, "errors": errors
     }), 200
