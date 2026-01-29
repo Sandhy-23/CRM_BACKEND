@@ -11,12 +11,12 @@ class ActivityLog(db.Model):
 
     related_id = db.Column(db.Integer)
 
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    user_id = db.Column(db.Integer, nullable=False)
     company_id = db.Column(db.Integer, nullable=False)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    user = db.relationship('User', backref='activity_logs')
+    user = db.relationship('User', backref='activity_logs', primaryjoin='foreign(ActivityLog.user_id) == User.id')
 
     def to_dict(self):
         return {

@@ -6,7 +6,7 @@ from models.calendar_event import CalendarEvent
 from models.reminder import Reminder
 from datetime import datetime, timedelta
 from sqlalchemy import or_
-from utils.activity_logger import log_activity
+from models.activity_logger import log_activity
 
 calendar_bp = Blueprint('calendar', __name__)
 

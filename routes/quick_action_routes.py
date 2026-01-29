@@ -2,24 +2,12 @@ from flask import Blueprint, request, jsonify
 from routes.auth_routes import token_required
 from models.crm import Lead, Activity
 from models.task import Task
-from models.activity_log import ActivityLog
 from models.user import User
 from extensions import db
 from datetime import datetime
+from models.activity_logger import log_activity
 
 quick_actions_bp = Blueprint('quick_actions', __name__)
-
-def log_activity(user_id, action, entity_type=None, entity_id=None):
-    """Helper to log activity to the database."""
-    log = ActivityLog(
-        user_id=user_id,
-        action=action,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        timestamp=datetime.utcnow()
-    )
-    db.session.add(log)
-    db.session.commit()
 
 # 1. Add a Task Quickly (Admin, Super Admin)
 @quick_actions_bp.route('/quick-actions/task', methods=['POST'])
@@ -44,7 +32,12 @@ def quick_add_task(current_user):
     db.session.add(new_task)
     db.session.commit()
     
-    log_activity(current_user.id, f"Created task: {new_task.title}", "Task", new_task.id)
+    log_activity(
+        module="task",
+        action="created",
+        description=f"Quick task created: '{new_task.title}'.",
+        related_id=new_task.id
+    )
     return jsonify({'message': 'Task created successfully', 'task_id': new_task.id}), 201
 
 # 2. Assign a Lead to a User (Admin, Super Admin)
@@ -60,11 +53,16 @@ def assign_lead(current_user, lead_id):
     lead = Lead.query.get(lead_id)
     if not lead:
         return jsonify({'message': 'Lead not found'}), 404
-        
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'message': 'User to assign to not found'}), 404
+
     lead.assigned_to = user_id
+    lead.owner_id = user_id # Also update owner
     db.session.commit()
     
-    log_activity(current_user.id, f"Assigned lead {lead_id} to user {user_id}", "Lead", lead.id)
+    log_activity(module="lead", action="assigned", description=f"Lead assigned to user '{user.name}'.", related_id=lead_id)
     return jsonify({'message': 'Lead assigned successfully'}), 200
 
 # 3. Add a Note (Admin, Super Admin, HR, Manager)
@@ -92,7 +90,7 @@ def add_note(current_user):
     db.session.add(activity)
     db.session.commit()
     
-    log_activity(current_user.id, "Added a note", "Activity", activity.id)
+    log_activity(module="note", action="created", description=f"Quick note added: {note_content}", related_id=activity.id)
     return jsonify({'message': 'Note added successfully'}), 201
 
 # 4. Change Status (Active / Inactive) (Admin, Super Admin, HR, Manager)
@@ -116,7 +114,12 @@ def change_user_status(current_user, user_id):
     target_user.status = new_status
     db.session.commit()
     
-    log_activity(current_user.id, f"Changed status of user {user_id} to {new_status}", "User", target_user.id)
+    log_activity(
+        module="user",
+        action="status_updated",
+        description=f"Status of user '{target_user.name}' changed to {new_status}.",
+        related_id=target_user.id
+    )
     return jsonify({'message': 'Status updated successfully'}), 200
 
 # 5. Log an Activity (All Roles) & 6. Mark Own Task Completed (Employee)
@@ -124,7 +127,8 @@ def change_user_status(current_user, user_id):
 @token_required
 def log_manual_activity(current_user):
     data = request.get_json()
-    log_activity(current_user.id, data.get('action'), data.get('entity_type'), data.get('entity_id'))
+    description = data.get('description', f"Manual activity logged for {data.get('entity_type')}")
+    log_activity(module=data.get('entity_type'), action=data.get('action'), description=description, related_id=data.get('entity_id'))
     return jsonify({'message': 'Activity logged successfully'}), 201
 
 @quick_actions_bp.route('/quick-actions/task/<int:task_id>/complete', methods=['PUT'])
@@ -135,5 +139,10 @@ def complete_own_task(current_user, task_id):
         return jsonify({'message': 'Task not found or permission denied.'}), 403
     task.status = 'Completed'
     db.session.commit()
-    log_activity(current_user.id, f"Marked task {task_id} as completed", "Task", task.id)
+    log_activity(
+        module="task",
+        action="completed",
+        description=f"Task '{task.title}' marked as completed.",
+        related_id=task.id
+    )
     return jsonify({'message': 'Task marked as completed'}), 200

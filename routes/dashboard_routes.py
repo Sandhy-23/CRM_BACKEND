@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash
 from models.attendance import Attendance
 from models.activity_log import ActivityLog
-from utils.activity_logger import log_activity
+from models.activity_logger import log_activity
 
 dashboard_bp = Blueprint("dashboard", __name__)
 

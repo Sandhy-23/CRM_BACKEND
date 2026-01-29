@@ -2,26 +2,14 @@ from flask import Blueprint, request, jsonify
 from routes.auth_routes import token_required
 from models.contact import Contact
 from models.user import User
-from models.activity_log import ActivityLog
 from extensions import db
 from datetime import datetime, timedelta
 from sqlalchemy import func, or_
+from models.activity_logger import log_activity
 
 contact_bp = Blueprint('contacts', __name__)
 
 # --- Helpers ---
-
-def log_activity(user_id, action, entity_type=None, entity_id=None):
-    """Helper to log activity to the database."""
-    log = ActivityLog(
-        user_id=user_id,
-        action=action,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        timestamp=datetime.utcnow()
-    )
-    db.session.add(log)
-    db.session.commit()
 
 def send_email(to_email, subject, body):
     """Mock email sender."""
@@ -99,7 +87,12 @@ def create_contact(current_user):
     db.session.add(new_contact)
     db.session.commit()
     
-    log_activity(current_user.id, f"Created contact: {new_contact.name}", "Contact", new_contact.id)
+    log_activity(
+        module="contact",
+        action="created",
+        description=f"Contact '{new_contact.name}' created.",
+        related_id=new_contact.id
+    )
     send_email(new_contact.email, "Welcome!", "Your contact profile has been created in our CRM.")
     
     return jsonify({'message': 'Contact created successfully', 'contact': new_contact.to_dict()}), 201
@@ -149,7 +142,12 @@ def update_contact(current_user, contact_id):
 
     db.session.commit()
     
-    log_activity(current_user.id, f"Updated contact: {contact.name}", "Contact", contact.id)
+    log_activity(
+        module="contact",
+        action="updated",
+        description=f"Contact '{contact.name}' updated.",
+        related_id=contact.id
+    )
     send_email(contact.email, "Profile Updated", "Your contact details have been updated.")
     return jsonify({'message': 'Contact updated successfully', 'contact': contact.to_dict()}), 200
 
@@ -169,7 +167,12 @@ def delete_contact(current_user, contact_id):
     contact.status = 'Inactive'
     db.session.commit()
     
-    log_activity(current_user.id, f"Deleted contact {contact_id}", "Contact", contact_id)
+    log_activity(
+        module="contact",
+        action="deleted",
+        description=f"Contact '{contact.name}' (ID: {contact_id}) deleted (set to inactive).",
+        related_id=contact_id
+    )
     return jsonify({'message': 'Contact deleted successfully'}), 200
 
 @contact_bp.route('/api/contacts/<int:contact_id>/profile', methods=['GET'])

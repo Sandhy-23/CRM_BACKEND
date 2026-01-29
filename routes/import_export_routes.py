@@ -14,7 +14,7 @@ from models.user import User
 from routes.contact_routes import get_contact_query
 from routes.lead_routes import get_lead_query, Account
 from routes.deal_routes import get_deal_query
-from utils.activity_logger import log_activity
+from models.activity_logger import log_activity
 
 import_export_bp = Blueprint('import_export', __name__)
 

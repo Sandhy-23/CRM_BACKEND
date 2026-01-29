@@ -12,3 +12,5 @@ from .organization_routes import organization_bp
 from .analytics_routes import analytics_bp
 from .task_routes import task_bp
 from .calendar_routes import calendar_bp
+from .activity_routes import activity_bp
+from .automation_routes import automation_bp

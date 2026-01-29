@@ -2,11 +2,12 @@ from flask import Blueprint, request, jsonify
 from extensions import db
 from models.crm import Deal
 from models.user import User
-from models.activity_log import ActivityLog
 from models.pipeline import Pipeline, PipelineStage
 from routes.auth_routes import token_required
 from datetime import datetime, date
 from sqlalchemy import func
+from models.activity_logger import log_activity
+from models.automation_engine import run_automation_rules
 
 deal_bp = Blueprint('deals', __name__)
 
@@ -77,7 +78,21 @@ def create_deal(current_user):
     
     db.session.add(new_deal)
     db.session.commit()
+
+    log_activity(
+        module="deal",
+        action="created",
+        description=f"Deal '{new_deal.title}' created with amount {new_deal.amount}.",
+        related_id=new_deal.id)
     
+    # --- AUTOMATION TRIGGER ---
+    run_automation_rules(
+        module="deal",
+        trigger_event="deal_created",
+        record=new_deal,
+        company_id=current_user.organization_id,
+        user_id=current_user.id
+    )
     return jsonify({'message': 'Deal created successfully', 'deal_id': new_deal.id}), 201
 
 @deal_bp.route('/api/deals', methods=['GET'])
@@ -124,6 +139,21 @@ def update_stage(current_user, deal_id):
         elif stage.name.lower() == 'lost': deal.status = 'Lost'
         
         db.session.commit()
+        log_activity(
+            module="deal",
+            action="stage_updated",
+            description=f"Deal '{deal.title}' moved to stage '{stage.name}'.",
+            related_id=deal.id
+        )
+
+        # --- AUTOMATION TRIGGER ---
+        run_automation_rules(
+            module="deal",
+            trigger_event="deal_updated",
+            record=deal,
+            company_id=current_user.organization_id,
+            user_id=current_user.id
+        )
         return jsonify({'message': 'Deal stage updated'}), 200
         
     return jsonify({'message': 'Stage is required'}), 400
@@ -144,7 +174,21 @@ def close_deal(current_user, deal_id):
     deal.status = status
     deal.stage = status # Sync stage with status for Won/Lost
     db.session.commit()
+    log_activity(
+        module="deal",
+        action="status_updated",
+        description=f"Deal '{deal.title}' status changed to '{status}'.",
+        related_id=deal.id
+    )
 
+    # --- AUTOMATION TRIGGER ---
+    run_automation_rules(
+        module="deal",
+        trigger_event="deal_updated",
+        record=deal,
+        company_id=current_user.organization_id,
+        user_id=current_user.id
+    )
     return jsonify({'message': 'Deal closed successfully'}), 200
 
 @deal_bp.route('/api/deals/<int:deal_id>/close', methods=['POST'])
@@ -177,6 +221,20 @@ def close_deal_with_outcome(current_user, deal_id):
 
     db.session.commit()
 
+    log_activity(
+        module="deal",
+        action="closed",
+        description=f"Deal '{deal.title}' closed as {outcome}.",
+        related_id=deal.id
+    )
+    # --- AUTOMATION TRIGGER ---
+    run_automation_rules(
+        module="deal",
+        trigger_event="deal_updated",
+        record=deal,
+        company_id=current_user.organization_id,
+        user_id=current_user.id
+    )
     return jsonify({'message': f'Deal marked as {outcome}'}), 200
 
 @deal_bp.route('/api/deals/forecast', methods=['GET'])

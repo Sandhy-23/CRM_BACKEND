@@ -3,6 +3,7 @@ from extensions import db
 from models.task import Task
 from models.user import User
 from routes.auth_routes import token_required
+from models.activity_logger import log_activity
 from datetime import datetime
 
 task_bp = Blueprint('tasks', __name__)
@@ -47,6 +48,13 @@ def create_task(current_user):
 
     db.session.add(new_task)
     db.session.commit()
+
+    log_activity(
+        module="task",
+        action="created",
+        description=f"Task '{new_task.title}' created.",
+        related_id=new_task.id
+    )
 
     return jsonify({'message': 'Task created successfully', 'task': new_task.to_dict()}), 201
 
@@ -100,4 +108,10 @@ def complete_task(current_user, task_id):
     task.status = 'Completed'
     db.session.commit()
 
+    log_activity(
+        module="task",
+        action="completed",
+        description=f"Task '{task.title}' marked as completed.",
+        related_id=task.id
+    )
     return jsonify({'message': 'Task marked as completed'}), 200

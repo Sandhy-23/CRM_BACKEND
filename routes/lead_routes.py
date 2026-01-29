@@ -3,10 +3,11 @@ from extensions import db
 from models.crm import Lead, Deal, Activity
 from models.contact import Contact
 from models.user import User
-from models.activity_log import ActivityLog
 from routes.auth_routes import token_required
 from datetime import datetime
 from sqlalchemy import func, or_
+from models.activity_logger import log_activity
+from models.automation_engine import run_automation_rules
 
 lead_bp = Blueprint('leads', __name__)
 
@@ -20,11 +21,6 @@ class Account(db.Model):
     owner_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-def log_activity(user_id, action, entity_type, entity_id):
-    log = ActivityLog(user_id=user_id, action=action, entity_type=entity_type, entity_id=entity_id, timestamp=datetime.utcnow())
-    db.session.add(log)
-    db.session.commit()
 
 def get_lead_query(current_user):
     """Enforce Zoho-style Role Based Access Control"""
@@ -85,7 +81,22 @@ def create_lead(current_user):
     db.session.add(new_lead)
     db.session.commit()
     
-    log_activity(current_user.id, f"Created Lead: {new_lead.last_name}", "Lead", new_lead.id)
+    log_activity(
+        module="lead",
+        action="created",
+        description=f"Lead '{new_lead.first_name or ''} {new_lead.last_name}' created.",
+        related_id=new_lead.id
+    )
+
+    # --- AUTOMATION TRIGGER ---
+    run_automation_rules(
+        module="lead",
+        trigger_event="lead_created",
+        record=new_lead,
+        company_id=current_user.organization_id,
+        user_id=current_user.id
+    )
+
     return jsonify({'message': 'Lead created successfully', 'lead_id': new_lead.id}), 201
 
 @lead_bp.route('/api/leads', methods=['GET'])
@@ -116,7 +127,8 @@ def get_lead_profile(current_user, lead_id):
         return jsonify({'message': 'Lead not found'}), 404
         
     # Get Activities
-    activities = ActivityLog.query.filter_by(entity_type='Lead', entity_id=lead.id).order_by(ActivityLog.timestamp.desc()).all()
+    # This should now use the new activity log table and its to_dict method
+    activities = [] # Placeholder, main timeline is via /api/activity-timeline
     
     return jsonify({
         "lead": {
@@ -131,7 +143,7 @@ def get_lead_profile(current_user, lead_id):
             "status": lead.status,
             "owner_id": lead.owner_id
         },
-        "activities": [{"action": a.action, "time": a.timestamp.isoformat()} for a in activities]
+        "activities": activities
     }), 200
 
 @lead_bp.route('/api/leads/<int:lead_id>', methods=['PUT'])
@@ -147,7 +159,12 @@ def update_lead(current_user, lead_id):
             setattr(lead, key, value)
             
     db.session.commit()
-    log_activity(current_user.id, f"Updated Lead: {lead.last_name}", "Lead", lead.id)
+    log_activity(
+        module="lead",
+        action="updated",
+        description=f"Lead '{lead.first_name or ''} {lead.last_name}' updated.",
+        related_id=lead.id
+    )
     return jsonify({'message': 'Lead updated successfully'}), 200
 
 @lead_bp.route('/api/leads/<int:lead_id>/convert', methods=['POST'])
@@ -177,6 +194,13 @@ def convert_lead(current_user, lead_id):
     db.session.add(new_deal)
     
     db.session.commit()
+
+    log_activity(
+        module="lead",
+        action="converted",
+        description=f"Lead '{lead.first_name or ''} {lead.last_name}' converted to Deal ID {new_deal.id}.",
+        related_id=lead.id
+    )
     
     return jsonify({
         'message': 'Lead converted successfully',
@@ -211,7 +235,12 @@ def assign_lead(current_user, lead_id):
         lead.assigned_to = assigned_to
 
     db.session.commit()
-    log_activity(current_user.id, f"Assigned lead to {assignee.name}", "Lead", lead.id)
+    log_activity(
+        module="lead",
+        action="assigned",
+        description=f"Lead assigned to user '{assignee.name}'.",
+        related_id=lead.id
+    )
     
     return jsonify({'message': 'Lead assigned successfully'}), 200
 
@@ -230,6 +259,11 @@ def update_lead_status(current_user, lead_id):
 
     lead.status = status
     db.session.commit()
-    log_activity(current_user.id, f"Updated lead status to {status}", "Lead", lead.id)
+    log_activity(
+        module="lead",
+        action="status_updated",
+        description=f"Lead status updated to '{status}'.",
+        related_id=lead.id
+    )
     
     return jsonify({'message': 'Lead status updated successfully'}), 200

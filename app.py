@@ -3,7 +3,7 @@ from flask_cors import CORS
 from extensions import db, jwt
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
-from routes import auth_bp, social_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp, lead_bp, deal_bp, note_file_bp, calendar_bp, activity_bp
+from routes import auth_bp, social_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp, lead_bp, deal_bp, note_file_bp, calendar_bp, activity_bp, automation_bp
 from routes.import_export_routes import import_export_bp
 from routes.chart_routes import chart_bp
 from routes.organization_routes import organization_bp
@@ -72,6 +72,7 @@ app.register_blueprint(pipeline_bp, url_prefix="/api")
 app.register_blueprint(task_bp)
 app.register_blueprint(calendar_bp, url_prefix="/api")
 app.register_blueprint(activity_bp, url_prefix="/api")
+app.register_blueprint(automation_bp, url_prefix="/api")
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):
@@ -354,6 +355,23 @@ with app.app_context():
                 connection.commit()
     except Exception as e:
         print(f"Task Migration Error: {e}")
+
+    # --- Auto-Migration for Password Resets Table ---
+    try:
+        with db.engine.connect() as connection:
+            # Check for 'reset_token'
+            try:
+                connection.execute(text("SELECT reset_token FROM password_resets LIMIT 1"))
+            except Exception:
+                print("⚠️ Column 'reset_token' not found in password_resets. Applying migration...")
+                try:
+                    connection.execute(text("ALTER TABLE password_resets ADD COLUMN reset_token VARCHAR(100)"))
+                    print("✔ Added column: reset_token to password_resets")
+                    connection.commit()
+                except Exception as e:
+                    print(f"Error adding reset_token column: {e}")
+    except Exception as e:
+        print(f"Password Reset Migration Error: {e}")
 
     # --- Seeding Script ---
     if not models.Plan.query.first():

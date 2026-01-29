@@ -8,7 +8,7 @@ from models.user import User
 import os
 from werkzeug.utils import secure_filename
 from datetime import datetime
-from utils.activity_logger import log_activity
+from models.activity_logger import log_activity
 
 note_file_bp = Blueprint('note_files', __name__)
 
