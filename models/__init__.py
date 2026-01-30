@@ -12,4 +12,4 @@ from .activity_log import ActivityLog
 from .attendance import Attendance
 from .calendar_event import CalendarEvent
 from .reminder import Reminder
-from .automation_rule import AutomationRule
+from .automation import AutomationRule, AutomationLog

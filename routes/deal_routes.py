@@ -7,7 +7,7 @@ from routes.auth_routes import token_required
 from datetime import datetime, date
 from sqlalchemy import func
 from models.activity_logger import log_activity
-from models.automation_engine import run_automation_rules
+from services.automation_engine import run_automation
 
 deal_bp = Blueprint('deals', __name__)
 
@@ -86,12 +86,10 @@ def create_deal(current_user):
         related_id=new_deal.id)
     
     # --- AUTOMATION TRIGGER ---
-    run_automation_rules(
+    run_automation(
         module="deal",
         trigger_event="deal_created",
-        record=new_deal,
-        company_id=current_user.organization_id,
-        user_id=current_user.id
+        record=new_deal
     )
     return jsonify({'message': 'Deal created successfully', 'deal_id': new_deal.id}), 201
 
@@ -147,12 +145,10 @@ def update_stage(current_user, deal_id):
         )
 
         # --- AUTOMATION TRIGGER ---
-        run_automation_rules(
+        run_automation(
             module="deal",
             trigger_event="deal_updated",
-            record=deal,
-            company_id=current_user.organization_id,
-            user_id=current_user.id
+            record=deal
         )
         return jsonify({'message': 'Deal stage updated'}), 200
         
@@ -182,12 +178,10 @@ def close_deal(current_user, deal_id):
     )
 
     # --- AUTOMATION TRIGGER ---
-    run_automation_rules(
+    run_automation(
         module="deal",
         trigger_event="deal_updated",
-        record=deal,
-        company_id=current_user.organization_id,
-        user_id=current_user.id
+        record=deal
     )
     return jsonify({'message': 'Deal closed successfully'}), 200
 
@@ -228,12 +222,10 @@ def close_deal_with_outcome(current_user, deal_id):
         related_id=deal.id
     )
     # --- AUTOMATION TRIGGER ---
-    run_automation_rules(
+    run_automation(
         module="deal",
         trigger_event="deal_updated",
-        record=deal,
-        company_id=current_user.organization_id,
-        user_id=current_user.id
+        record=deal
     )
     return jsonify({'message': f'Deal marked as {outcome}'}), 200
 

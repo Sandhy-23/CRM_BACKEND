@@ -16,6 +16,7 @@ from flask_jwt_extended import get_jwt, verify_jwt_in_request
 from models.calendar_event import CalendarEvent
 from models.reminder import Reminder
 from dotenv import load_dotenv
+import models.automation # Register Automation Models
 load_dotenv()
 
 

@@ -1377,10 +1377,10 @@
 			]
 		},
 		{
-			"name": "Calendar & Reminders",
+			"name": "Automation Rules",
 			"item": [
 				{
-					"name": "Create Event",
+					"name": "1. Create Rule (Assign Lead)",
 					"request": {
 						"auth": {
 							"type": "bearer",
@@ -1402,24 +1402,18 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"title\": \"Follow-up call with Acme Inc\",\n    \"description\": \"Discuss the new proposal.\",\n    \"event_type\": \"Call\",\n    \"start_datetime\": \"2026-02-10T14:00:00Z\",\n    \"end_datetime\": \"2026-02-10T14:30:00Z\",\n    \"related_type\": \"deal\",\n    \"related_id\": 1,\n    \"assigned_to\": 1,\n    \"remind_before_minutes\": 15\n}"
+							"raw": "{\n  \"name\": \"Auto assign Website leads\",\n  \"module\": \"lead\",\n  \"trigger_event\": \"lead_created\",\n  \"priority\": 1,\n  \"stop_on_match\": true,\n  \"conditions\": [\n    {\n      \"field_name\": \"source\",\n      \"operator\": \"equals\",\n      \"value\": \"Website\"\n    }\n  ],\n  \"actions\": [\n    {\n      \"action_type\": \"assign_owner\",\n      \"config\": {\n        \"user_id\": 1\n      }\n    },\n    {\n      \"action_type\": \"create_task\",\n      \"config\": {\n        \"title\": \"Call new website lead\",\n        \"days_due\": 1\n      }\n    }\n  ]\n}"
 						},
 						"url": {
-							"raw": "{{base_url}}/api/calendar/events",
-							"host": [
-								"{{base_url}}"
-							],
-							"path": [
-								"api",
-								"calendar",
-								"events"
-							]
+							"raw": "{{base_url}}/api/automation-rules",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "automation-rules" ]
 						}
 					},
 					"response": []
 				},
 				{
-					"name": "Get Events",
+					"name": "2. Get Rules",
 					"request": {
 						"auth": {
 							"type": "bearer",
@@ -1434,50 +1428,15 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/calendar/events",
-							"host": [
-								"{{base_url}}"
-							],
-							"path": [
-								"api",
-								"calendar",
-								"events"
-							]
+							"raw": "{{base_url}}/api/automation-rules",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "automation-rules" ]
 						}
 					},
 					"response": []
 				},
 				{
-					"name": "Get Today's Reminders",
-					"request": {
-						"auth": {
-							"type": "bearer",
-							"bearer": [
-								{
-									"key": "token",
-									"value": "{{token}}",
-									"type": "string"
-								}
-							]
-						},
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{base_url}}/api/reminders/today",
-							"host": [
-								"{{base_url}}"
-							],
-							"path": [
-								"api",
-								"reminders",
-								"today"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Mark Reminder as Sent",
+					"name": "3. Toggle Rule",
 					"request": {
 						"auth": {
 							"type": "bearer",
@@ -1492,60 +1451,15 @@
 						"method": "PUT",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/reminders/1/sent",
-							"host": [
-								"{{base_url}}"
-							],
-							"path": [
-								"api",
-								"reminders",
-								"1",
-								"sent"
-							]
-						}
-					},
-					"response": []
-				}
-			]
-		},
-		{
-			"name": "Automation Rules",
-			"item": [
-				{
-					"name": "Create Rule (Assign Lead)",
-					"request": {
-						"auth": {
-							"type": "bearer",
-							"bearer": [
-								{
-									"key": "token",
-									"value": "{{token}}",
-									"type": "string"
-								}
-							]
-						},
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json",
-								"type": "text"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"name\": \"Auto assign Website leads\",\n  \"module\": \"lead\",\n  \"trigger_event\": \"lead_created\",\n  \"conditions\": {\n    \"field\": \"source\",\n    \"operator\": \"equals\",\n    \"value\": \"Website\"\n  },\n  \"actions\": [\n    {\n      \"type\": \"assign_owner\",\n      \"user_id\": 1\n    },\n    {\n      \"type\": \"create_task\",\n      \"title\": \"Call new website lead\",\n      \"days_due\": 1\n    }\n  ]\n}"
-						},
-						"url": {
-							"raw": "{{base_url}}/api/automation-rules",
+							"raw": "{{base_url}}/api/automation/rules/1/toggle",
 							"host": [ "{{base_url}}" ],
-							"path": [ "api", "automation-rules" ]
+							"path": [ "api", "automation", "rules", "1", "toggle" ]
 						}
 					},
 					"response": []
 				},
 				{
-					"name": "Get Rules",
+					"name": "4. Get Automation Logs",
 					"request": {
 						"auth": {
 							"type": "bearer",
@@ -1560,9 +1474,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/automation-rules",
+							"raw": "{{base_url}}/api/automation/logs",
 							"host": [ "{{base_url}}" ],
-							"path": [ "api", "automation-rules" ]
+							"path": [ "api", "automation", "logs" ]
 						}
 					},
 					"response": []

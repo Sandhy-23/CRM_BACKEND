@@ -7,7 +7,7 @@ from routes.auth_routes import token_required
 from datetime import datetime
 from sqlalchemy import func, or_
 from models.activity_logger import log_activity
-from models.automation_engine import run_automation_rules
+from services.automation_engine import run_automation
 
 lead_bp = Blueprint('leads', __name__)
 
@@ -89,12 +89,10 @@ def create_lead(current_user):
     )
 
     # --- AUTOMATION TRIGGER ---
-    run_automation_rules(
+    run_automation(
         module="lead",
         trigger_event="lead_created",
-        record=new_lead,
-        company_id=current_user.organization_id,
-        user_id=current_user.id
+        record=new_lead
     )
 
     return jsonify({'message': 'Lead created successfully', 'lead_id': new_lead.id}), 201
