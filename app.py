@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, g
+from flask import Flask, jsonify, g, request
 from flask_cors import CORS
 from extensions import db, jwt
 from sqlalchemy.exc import IntegrityError
@@ -25,9 +25,15 @@ app.config.from_object(Config)
 print(f"✅ Database URI: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
 CORS(
     app,
-    resources={r"/*": {"origins": "*"}},
+    resources={r"/*": {"origins": ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173"]}},
     supports_credentials=True
 )
+
+@app.before_request
+def log_request_info():
+    """Log incoming JSON requests for debugging."""
+    if request.method in ["POST", "PUT", "PATCH"] and request.is_json:
+        print(f"📥 [DEBUG] {request.path} Body: {request.get_json(silent=True)}")
 
 @app.before_request
 def load_user_context_from_token():
@@ -261,10 +267,34 @@ with app.app_context():
             
             # 6. Fix Organizations Table (Setup Flow Requirements)
             try:
+                connection.execute(text("SELECT name FROM organizations LIMIT 1"))
+            except Exception:
+                print("⚠️ Column 'name' not found in organizations. Adding...")
+                try:
+                    connection.execute(text("ALTER TABLE organizations ADD COLUMN name VARCHAR(100)"))
+                    connection.commit()
+                    print("✔ Added column: name")
+                except Exception:
+                    pass
+
+            try:
+                connection.execute(text("SELECT organization_name FROM organizations LIMIT 1"))
+            except Exception:
+                print("⚠️ Column 'organization_name' not found in organizations. Adding...")
+                try:
+                    connection.execute(text("ALTER TABLE organizations ADD COLUMN organization_name VARCHAR(100)"))
+                    connection.commit()
+                    print("✔ Added column: organization_name")
+                except Exception:
+                    pass
+
+            try:
                 connection.execute(text("SELECT company_size FROM organizations LIMIT 1"))
             except Exception:
                 print("⚠️ Column 'company_size' not found in organizations. Applying migrations...")
                 org_cols = [
+                    ("name", "VARCHAR(100)"),
+                    ("organization_name", "VARCHAR(100)"),
                     ("company_size", "VARCHAR(50)"),
                     ("industry", "VARCHAR(100)"),
                     ("phone", "VARCHAR(20)"),

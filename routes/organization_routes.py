@@ -3,6 +3,7 @@ from extensions import db
 from models.organization import Organization
 from routes.auth_routes import token_required
 from datetime import datetime
+from sqlalchemy import text
 
 organization_bp = Blueprint('organization', __name__)
 
@@ -18,10 +19,17 @@ def setup_organization(current_user):
         return jsonify({"message": "Unauthorized. Only a Super Admin can setup the organization."}), 403
 
     data = request.get_json()
+    print(f"📥 Organization Setup Data: {data}")
     
     # 2. Validate Required Fields
-    required_fields = ['organization_name', 'organization_size', 'industry', 'country']
+    # Allow 'name' or 'organization_name'
+    org_name = data.get('organization_name') or data.get('name')
+
+    required_fields = ['organization_size', 'industry', 'country']
     missing_fields = [field for field in required_fields if not data.get(field)]
+    
+    if not org_name:
+        missing_fields.append('organization_name')
     
     if missing_fields:
         return jsonify({"error": "Validation Error", "message": f"Missing required fields: {', '.join(missing_fields)}"}), 400
@@ -39,7 +47,7 @@ def setup_organization(current_user):
     # 4. Update Organization Data
     # Mapping 'organization_size' from request to 'company_size' in DB as per requirements
     try:
-        organization.name = data.get('organization_name')
+        organization.name = org_name
         organization.company_size = data.get('organization_size') # Mapped field
         organization.industry = data.get('industry')
         organization.phone = data.get('phone')
@@ -53,6 +61,16 @@ def setup_organization(current_user):
         organization.updated_at = datetime.utcnow()
 
         db.session.commit()
+        
+        # Ensure organization_name column is also populated (Direct SQL in case Model is not updated)
+        try:
+            db.session.execute(
+                text("UPDATE organizations SET organization_name = :name WHERE id = :id"),
+                {"name": org_name, "id": organization.id}
+            )
+            db.session.commit()
+        except Exception as e:
+            print(f"⚠️ Manual update of organization_name failed: {e}")
 
         # Link Super Admin to this Organization if not already linked
         if not current_user.organization_id:

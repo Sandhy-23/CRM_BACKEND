@@ -192,15 +192,20 @@ def signup():
     # Send OTP (Logs to console if SMTP not set)
     send_email(email, "Signup OTP", f"Your OTP is: {otp}")
     
-    return jsonify({"message": "OTP sent successfully"}), 200
+    return jsonify({"message": "OTP sent successfully", "otp": otp}), 200
 
 @auth_bp.route('/verify-otp', methods=['POST'])
 def verify_otp():
     data = request.get_json()
+    if not data:
+        print("❌ Verify OTP Failed: No JSON body received or Content-Type not application/json")
+        return jsonify({"error": "Invalid request body"}), 400
+
     email = data.get('email', '').strip().lower()
     otp = data.get('otp', '').strip()
 
     if not email or not otp:
+        print(f"❌ Verify OTP Failed: Missing email or OTP. Data received: {data}")
         return jsonify({"error": "Email and OTP are required"}), 400
 
     # 1. Check DB Storage
@@ -209,15 +214,23 @@ def verify_otp():
     
     if not record:
         # UX Improvement: Check if user is already in DB to give better error
-        if User.query.filter_by(email=email).first():
-             return jsonify({"error": "User already registered. Please use the Login endpoint."}), 400
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user:
+             if existing_user.is_verified:
+                 print(f"✅ Verify OTP: User '{email}' already verified. Redirecting to login.")
+                 return jsonify({"message": "User already verified. Please login."}), 200
+             else:
+                 return jsonify({"error": "OTP expired. Please click Resend OTP."}), 400
+        print(f"❌ Verify OTP Failed: No pending OTP record found for '{email}'.")
         return jsonify({"error": "No pending signup found. Check for typos or sign up again."}), 400
 
     # 2. Validate OTP and Expiry
     if record.otp != otp:
+        print(f"❌ Verify OTP Failed: Invalid OTP for '{email}'. Expected: {record.otp}, Received: {otp}")
         return jsonify({"error": "Invalid OTP"}), 400
     
     if datetime.datetime.utcnow() > record.expiry:
+        print(f"❌ Verify OTP Failed: OTP expired for '{email}'.")
         try:
             db.session.delete(record)
             db.session.commit()
@@ -286,6 +299,57 @@ def verify_otp():
         print(f"❌ Database Error in verify-otp: {e}")
         return jsonify({"error": str(e)}), 500
     
+@auth_bp.route('/resend-otp', methods=['POST'])
+def resend_otp():
+    data = request.get_json()
+    email = data.get('email', '').strip().lower()
+
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    # 1. Check if user is already registered
+    if User.query.filter_by(email=email).first():
+        return jsonify({"message": "User already registered. Please login."}), 400
+    # Check if user exists to determine flow (Signup vs Password Reset)
+    user = User.query.filter_by(email=email).first()
+
+    if user:
+        # --- FLOW: Password Reset Resend ---
+        record = PasswordResetToken.query.filter_by(email=email).first()
+        if not record:
+            return jsonify({"error": "No pending password reset found. Please request a new password reset."}), 400
+        
+        new_otp = generate_otp()
+        record.otp = new_otp
+        record.expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
+        
+        try:
+            db.session.commit()
+            send_email(email, "Resend Password Reset OTP", f"Your new OTP is: {new_otp}")
+            return jsonify({"message": "OTP resent successfully", "otp": new_otp}), 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": "Database error", "message": str(e)}), 500
+    else:
+        # --- FLOW: Signup Verification Resend ---
+        record = OtpVerification.query.filter_by(email=email).first()
+        
+        if not record:
+            return jsonify({"error": "No pending signup found. Please sign up again."}), 400
+
+        new_otp = generate_otp()
+        record.otp = new_otp
+        record.expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
+        
+        try:
+            db.session.commit()
+            send_email(email, "Resend Signup OTP", f"Your new OTP is: {new_otp}")
+            # Return OTP in response so you don't need to check Gmail
+            return jsonify({"message": "OTP resent successfully", "otp": new_otp}), 200
+        except Exception as e:
+            db.session.rollback()
+            print(f"❌ DB ERROR in resend_otp: {str(e)}")
+            return jsonify({"error": "Database error", "message": str(e)}), 500
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
@@ -515,11 +579,8 @@ def forgot_password():
         return jsonify({"error": "Database error", "message": str(e)}), 500
     
     if send_email(email, "Reset Password OTP", f"Your password reset OTP is {otp}"):
-        # Create a temporary token that holds the email identity for the next step
-        otp_verify_token = create_access_token(identity=email, expires_delta=datetime.timedelta(minutes=10))
         return jsonify({
-            "message": "If this email is registered, an OTP has been sent.",
-            "otp_verify_token": otp_verify_token
+            "message": "If this email is registered, an OTP has been sent."
         }), 200
     else:
         # In a real app, you might not want to expose this failure.
@@ -527,25 +588,15 @@ def forgot_password():
 
 @auth_bp.route('/verify-reset-otp', methods=['POST'])
 def verify_reset_otp():
-    try:
-        verify_jwt_in_request()
-        email = get_jwt_identity()
-    except Exception as e:
-        return jsonify({'message': 'Missing or invalid otp_verify_token', 'error': str(e)}), 401
-
     data = request.get_json()
     otp = data.get('otp', '').strip()
 
     if not otp:
         return jsonify({"error": "OTP is required"}), 400
 
-    record = PasswordResetToken.query.filter_by(email=email).first()
-
+    record = PasswordResetToken.query.filter_by(otp=otp).first()
     if not record:
-        return jsonify({"error": "No pending password reset found for this user."}), 404
-
-    if record.otp != otp:
-        return jsonify({"error": "Invalid OTP"}), 400
+        return jsonify({"error": "Invalid OTP or no pending reset found."}), 404
     
     if datetime.datetime.utcnow() > record.expires_at:
         db.session.delete(record)
@@ -553,23 +604,18 @@ def verify_reset_otp():
         return jsonify({"error": "OTP has expired"}), 400
     
     try:
-        reset_token = secrets.token_urlsafe(32)
         record.verified = True
+        # Generate a secure token for the session
+        reset_token = secrets.token_urlsafe(32)
         record.reset_token = reset_token
         # Extend expiry slightly to give user time to enter new password
         record.expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=5)
         db.session.commit()
 
         response = jsonify({"message": "OTP verified successfully"})
-        response.set_cookie(
-            'reset_token',
-            value=reset_token,
-            httponly=True,
-            secure=request.is_secure,
-            samesite='Lax',
-            max_age=300 # 5 minutes
-        )
-        return response
+        # Set HttpOnly cookie to maintain session without exposing token in body
+        response.set_cookie('reset_token', reset_token, httponly=True, samesite='Lax', max_age=300)
+        return response, 200
     except Exception as e:
         db.session.rollback()
         print(f"❌ DB ERROR in verify_reset_otp: {str(e)}")
@@ -577,11 +623,11 @@ def verify_reset_otp():
 
 @auth_bp.route('/reset-password', methods=['POST'])
 def reset_password():
+    data = request.get_json() or {}
+    
     reset_token = request.cookies.get('reset_token')
     if not reset_token:
-        return jsonify({"error": "Reset token not found. Please verify your OTP first."}), 401
-
-    data = request.get_json() or {}
+        return jsonify({"error": "Reset session not found. Please verify OTP again."}), 401
 
     # Handle both snake_case and camelCase from frontend
     new_password = data.get("new_password") or data.get("newPassword")
@@ -598,7 +644,7 @@ def reset_password():
     record = PasswordResetToken.query.filter_by(reset_token=reset_token).first()
 
     if not record:
-        return jsonify({"error": "Invalid or expired reset token. Please start over."}), 400
+        return jsonify({"error": "Invalid or expired reset token."}), 401
 
     if not record.verified or datetime.datetime.utcnow() > record.expires_at:
         db.session.delete(record)
@@ -617,7 +663,7 @@ def reset_password():
         print("✅ Password reset successful.")
         response = jsonify({"message": "Password reset successfully"})
         response.delete_cookie('reset_token')
-        return response
+        return response, 200
     except Exception as e:
         db.session.rollback()
         print(f"❌ DB ERROR in reset_password: {str(e)}")
