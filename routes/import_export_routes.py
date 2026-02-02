@@ -92,22 +92,22 @@ def process_contact_import(df, current_user):
 
 def process_lead_import(df, current_user):
     """Handles the logic for importing leads."""
-    required_columns = ['last_name', 'company']
+    required_columns = ['name', 'company']
     if not all(col in df.columns for col in required_columns):
         missing = [col for col in required_columns if col not in df.columns]
         return jsonify({'error': 'File Processing Error', 'message': f'Missing required columns: {", ".join(missing)}'}), 400
 
     imported_count, failed_count, errors = 0, 0, []
-    existing_emails = {l.email for l in Lead.query.filter_by(company_id=current_user.organization_id).filter(Lead.email.isnot(None)).all()}
+    existing_emails = {l.email for l in Lead.query.filter(Lead.email.isnot(None)).all()}
 
     for index, row in df.iterrows():
         row_num = index + 2
         email = str(row.get('email', '')).strip()
-        last_name = str(row.get('last_name', '')).strip()
+        name = str(row.get('name', '')).strip()
         company = str(row.get('company', '')).strip()
 
-        if not last_name:
-            errors.append({'row': row_num, 'reason': 'Missing last_name'})
+        if not name:
+            errors.append({'row': row_num, 'reason': 'Missing name'})
             failed_count += 1
             continue
         if not company:
@@ -121,15 +121,12 @@ def process_lead_import(df, current_user):
 
         try:
             new_lead = Lead(
-                first_name=str(row.get('first_name', '')).strip(),
-                last_name=last_name,
+                name=name,
                 company=company,
                 email=email if email else None,
                 phone=str(row.get('phone', '')).strip(),
                 source='Import',
-                status=str(row.get('status', 'New')).strip(),
-                owner_id=current_user.id,
-                company_id=current_user.organization_id
+                status=str(row.get('status', 'New')).strip()
             )
             db.session.add(new_lead)
             if email: existing_emails.add(email)
@@ -189,9 +186,9 @@ def export_data(current_user, module):
         records = get_lead_query(current_user).filter(Lead.status != 'Converted').all()
         if records:
             data = [{
-                "id": l.id, "first_name": l.first_name, "last_name": l.last_name,
+                "id": l.id, "name": l.name,
                 "company": l.company, "email": l.email, "phone": l.phone,
-                "status": l.status, "source": l.source, "owner_id": l.owner_id,
+                "status": l.status, "source": l.source, "owner": l.owner,
                 "created_at": l.created_at.isoformat() if l.created_at else None
             } for l in records]
             df = pd.DataFrame(data)
@@ -220,12 +217,13 @@ def export_data(current_user, module):
             df = pd.DataFrame(data)
 
     elif module == 'notes':
-        query = Note.query.filter_by(company_id=current_user.organization_id)
-        if current_user.role not in ['SUPER_ADMIN', 'ADMIN', 'HR']:
-            # For other roles, only export notes they created
-            query = query.filter_by(created_by=current_user.id)
+        # Export all notes (Simple Schema: id, note, created_at)
+        query = Note.query.order_by(Note.created_at.desc())
         records = query.all()
-        if records: df = pd.DataFrame([r.to_dict() for r in records])
+        if records: 
+            # Manual dict creation since to_dict might be outdated in model
+            data = [{"id": r.id, "note": r.note, "created_at": r.created_at} for r in records]
+            df = pd.DataFrame(data)
 
     else:
         return jsonify({'error': 'Not Found', 'message': f'Export for module "{module}" is not supported.'}), 404

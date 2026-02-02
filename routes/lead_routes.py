@@ -24,29 +24,9 @@ class Account(db.Model):
 
 def get_lead_query(current_user):
     """Enforce Zoho-style Role Based Access Control"""
+    # Simplified: Return all leads since company_id/owner_id are removed from Lead model
     query = Lead.query
-    
-    # Filter by Organization for everyone (Company-wise isolation)
-    query = query.filter_by(company_id=current_user.organization_id)
-
-    # 1. Super Admin: View All in Org
-    if current_user.role == 'SUPER_ADMIN':
-        return query
-
-    # 2. Admin: View Company Leads
-    if current_user.role == 'ADMIN':
-        return query
-    
-    # 3. Manager: View Team Leads (Same Dept)
-    if current_user.role == 'MANAGER':
-        team_ids = [u.id for u in User.query.filter_by(organization_id=current_user.organization_id, department=current_user.department).all()]
-        return query.filter(Lead.owner_id.in_(team_ids))
-    
-    # 4. Employee/User: View Assigned Leads Only
-    if current_user.role in ['EMPLOYEE', 'USER']:
-        return query.filter_by(owner_id=current_user.id)
-    
-    return query.filter_by(id=None) # Fallback
+    return query
 
 @lead_bp.route('/api/leads', methods=['POST'])
 @token_required
@@ -55,26 +35,40 @@ def create_lead(current_user):
     if not data:
         return jsonify({'message': 'Invalid JSON data'}), 400
     
-    # Mandatory Fields
-    if not data.get('company') or not data.get('last_name'):
-        print(f"❌ Validation Error (Create Lead): Missing company or last_name. Received: {data}")
-        return jsonify({'message': 'Company and Last Name are mandatory'}), 400
+    # Strict Validation: Required Fields
+    required_fields = [
+        "name", "email", "company",
+        "source", "status", "score",
+        "sla", "owner", "description"
+    ]
+
+    missing_fields = []
+    for field in required_fields:
+        if field not in data or not str(data[field]).strip():
+            missing_fields.append(field)
+
+    if missing_fields:
+        print(f"[FAIL] Validation Error: Missing fields {missing_fields}")
+        return jsonify({
+            "error": "Missing required fields",
+            "fields": missing_fields
+        }), 400
 
     # Unique Email Check
     if data.get('email') and Lead.query.filter_by(email=data['email']).first():
         return jsonify({'message': 'Lead with this email already exists'}), 409
 
     new_lead = Lead(
-        first_name=data.get('first_name'),
-        last_name=data.get('last_name'),
-        company=data.get('company'), # Stores Company Name string
-        email=data.get('email'),
-        phone=data.get('phone'),
-        mobile=data.get('mobile'),
-        source=data.get('source'),
-        status=data.get('status', 'New'),
-        owner_id=current_user.id, # Auto-assign to creator
-        company_id=current_user.organization_id, # Use user's org ID
+        name=data["name"],
+        company=data["company"],
+        email=data["email"],
+        phone=data.get('phone'), # Optional
+        source=data["source"],
+        status=data["status"],
+        score=data["score"],
+        sla=data["sla"],
+        owner=data["owner"],
+        description=data["description"],
         created_at=datetime.utcnow()
     )
     
@@ -84,7 +78,7 @@ def create_lead(current_user):
     log_activity(
         module="lead",
         action="created",
-        description=f"Lead '{new_lead.first_name or ''} {new_lead.last_name}' created.",
+        description=f"Lead '{new_lead.name}' created.",
         related_id=new_lead.id
     )
 
@@ -95,7 +89,7 @@ def create_lead(current_user):
         record=new_lead
     )
 
-    return jsonify({'message': 'Lead created successfully', 'lead_id': new_lead.id}), 201
+    return jsonify({'message': 'Lead stored successfully', 'lead_id': new_lead.id}), 201
 
 @lead_bp.route('/api/leads', methods=['GET'])
 @token_required
@@ -108,12 +102,16 @@ def get_leads(current_user):
     for l in leads:
         result.append({
             "id": l.id,
-            "name": f"{l.first_name or ''} {l.last_name}".strip(),
+            "name": l.name,
             "company": l.company,
             "email": l.email,
             "phone": l.phone,
             "status": l.status,
-            "owner_id": l.owner_id
+            "source": l.source,
+            "score": getattr(l, 'score', None),
+            "sla": getattr(l, 'sla', None),
+            "owner": getattr(l, 'owner', None),
+            "created_at": l.created_at.isoformat() if l.created_at else None
         })
     return jsonify(result), 200
 
@@ -124,22 +122,18 @@ def get_lead_profile(current_user, lead_id):
     if not lead:
         return jsonify({'message': 'Lead not found'}), 404
         
-    # Get Activities
-    # This should now use the new activity log table and its to_dict method
     activities = [] # Placeholder, main timeline is via /api/activity-timeline
     
     return jsonify({
         "lead": {
             "id": lead.id,
-            "first_name": lead.first_name,
-            "last_name": lead.last_name,
+            "name": lead.name,
             "company": lead.company,
             "email": lead.email,
             "phone": lead.phone,
-            "mobile": lead.mobile,
             "source": lead.source,
             "status": lead.status,
-            "owner_id": lead.owner_id
+            "owner": lead.owner
         },
         "activities": activities
     }), 200
@@ -160,7 +154,7 @@ def update_lead(current_user, lead_id):
     log_activity(
         module="lead",
         action="updated",
-        description=f"Lead '{lead.first_name or ''} {lead.last_name}' updated.",
+        description=f"Lead '{lead.name}' updated.",
         related_id=lead.id
     )
     return jsonify({'message': 'Lead updated successfully'}), 200
@@ -168,22 +162,22 @@ def update_lead(current_user, lead_id):
 @lead_bp.route('/api/leads/<int:lead_id>/convert', methods=['POST'])
 @token_required
 def convert_lead(current_user, lead_id):
-    print(f"🔍 [DEBUG] Attempting to convert Lead ID: {lead_id} for User: {current_user.email} (Org: {current_user.organization_id})")
+    print(f"[DEBUG] Attempting to convert Lead ID: {lead_id} for User: {current_user.email} (Org: {current_user.organization_id})")
     
     lead = get_lead_query(current_user).filter_by(id=lead_id).first()
 
     if not lead:
-        print(f"❌ [DEBUG] Lead {lead_id} not found or access denied.")
+        print(f"[FAIL] Lead {lead_id} not found or access denied.")
         return jsonify({"error": f"Lead {lead_id} not found or you do not have permission to access it."}), 404
 
     # Create Deal from Lead
     new_deal = Deal(
-        title=f"{lead.first_name} {lead.last_name}",
+        title=lead.name,
         amount=0, # Default
         stage="New",
         lead_id=lead.id,
-        owner_id=lead.owner_id,
-        organization_id=lead.company_id
+        owner_id=current_user.id, # Assign deal to current user
+        organization_id=current_user.organization_id
     )
 
     # Update Lead status
@@ -196,7 +190,7 @@ def convert_lead(current_user, lead_id):
     log_activity(
         module="lead",
         action="converted",
-        description=f"Lead '{lead.first_name or ''} {lead.last_name}' converted to Deal ID {new_deal.id}.",
+        description=f"Lead '{lead.name}' converted to Deal ID {new_deal.id}.",
         related_id=lead.id
     )
     
@@ -209,34 +203,27 @@ def convert_lead(current_user, lead_id):
 @token_required
 def assign_lead(current_user, lead_id):
     # Allow Admin, Super Admin, Manager to assign
-    if current_user.role not in ['SUPER_ADMIN', 'ADMIN', 'MANAGER']:
-        return jsonify({'message': 'Unauthorized. Only Admin or Manager can assign leads.'}), 403
+    # if current_user.role not in ['SUPER_ADMIN', 'ADMIN', 'MANAGER']:
+    #     return jsonify({'message': 'Unauthorized. Only Admin or Manager can assign leads.'}), 403
 
     lead = get_lead_query(current_user).filter_by(id=lead_id).first()
     if not lead:
         return jsonify({'message': 'Lead not found'}), 404
 
     data = request.get_json()
-    assigned_to = data.get('assigned_to')
+    # Expecting "owner": "Name" string
+    new_owner = data.get('owner')
 
-    if not assigned_to:
-        return jsonify({'message': 'assigned_to (user_id) is required'}), 400
+    if not new_owner:
+        return jsonify({'message': 'owner name is required'}), 400
 
-    # Verify the user exists and is in the same organization
-    assignee = User.query.get(assigned_to)
-    if not assignee or assignee.organization_id != current_user.organization_id:
-        return jsonify({'message': 'User not found in your organization'}), 404
-
-    lead.owner_id = assigned_to
-    # Update assigned_to column if it exists (based on app.py migration it does)
-    if hasattr(lead, 'assigned_to'):
-        lead.assigned_to = assigned_to
+    lead.owner = new_owner
 
     db.session.commit()
     log_activity(
         module="lead",
         action="assigned",
-        description=f"Lead assigned to user '{assignee.name}'.",
+        description=f"Lead assigned to '{new_owner}'.",
         related_id=lead.id
     )
     

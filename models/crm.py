@@ -4,18 +4,17 @@ from datetime import datetime
 class Lead(db.Model):
     __tablename__ = 'leads'
     id = db.Column(db.Integer, primary_key=True)
-    first_name = db.Column(db.String(50))
-    last_name = db.Column(db.String(50))
-    company = db.Column(db.String(100))
-    email = db.Column(db.String(100))
+    name = db.Column(db.String(100), nullable=False)
+    company = db.Column(db.String(120), nullable=False)
+    email = db.Column(db.String(120), nullable=False)
     phone = db.Column(db.String(20))
-    mobile = db.Column(db.String(20))
-    source = db.Column(db.String(50))
-    status = db.Column(db.String(50), default='New')
-    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    company_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    assigned_to = db.Column(db.Integer)
+    source = db.Column(db.String(50), nullable=False)
+    status = db.Column(db.String(50), nullable=False)
+    score = db.Column(db.String(20), nullable=False)
+    sla = db.Column(db.String(20), nullable=False)
+    owner = db.Column(db.String(50), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 class Deal(db.Model):
     __tablename__ = 'deals'

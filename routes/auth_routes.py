@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, current_app
+from flask_cors import cross_origin
 from extensions import db
 from models.user import User, LoginHistory
 from models.organization import Organization
@@ -28,10 +29,10 @@ env_typo_path = os.path.join(basedir, '.env.') # Handle potential typo
 
 if os.path.exists(env_path):
     load_dotenv(env_path, override=True)
-    print(f"✅ Loaded .env from: {env_path}")
+    print(f"[OK] Loaded .env from: {env_path}")
 elif os.path.exists(env_typo_path):
     load_dotenv(env_typo_path, override=True)
-    print(f"⚠️ Loaded .env from typo path: {env_typo_path}. Please rename to .env")
+    print(f"[WARN] Loaded .env from typo path: {env_typo_path}. Please rename to .env")
 else:
     load_dotenv(find_dotenv(), override=True)
 
@@ -72,12 +73,12 @@ def send_email(to_email, subject, body):
             server.login(smtp_user, smtp_password)
             server.send_message(msg)
             server.quit()
-            print(f"✅ Email sent to {to_email} via SMTP")
+            print(f"[OK] Email sent to {to_email} via SMTP")
             return True
         except Exception as e:
-            print(f"❌ Failed to send email: {e}")
+            print(f"[FAIL] Failed to send email: {e}")
             if "535" in str(e):
-                print(f"💡 HINT: Error 535 means 'Bad Credentials'.")
+                print(f"[HINT] Error 535 means 'Bad Credentials'.")
                 print(f"   -> System attempted to login as: '{smtp_user}'")
                 print("   1. RESTART your Flask server to load .env changes.")
                 print("   2. Check if MAIL_PASSWORD is your 16-char Google App Password (NOT login password).")
@@ -85,10 +86,10 @@ def send_email(to_email, subject, body):
             return False
 
     # 2. Dev Mode Output (Print to Console)
-    print(f"⚠️ SMTP not configured. Email to {to_email} was NOT sent via SMTP.")
+    print(f"[WARN] SMTP not configured. Email to {to_email} was NOT sent via SMTP.")
     print(f"   -> MAIL_USERNAME present: {bool(smtp_user)}")
     print(f"   -> MAIL_PASSWORD present: {bool(smtp_password)}")
-    print(f"👇 EMAIL CONTENT (DEV MODE) 👇")
+    print(f"[INFO] EMAIL CONTENT (DEV MODE)")
     print(f"Subject: {subject}")
     print(f"{body}")
     print("--------------------------------------------------")
@@ -102,10 +103,10 @@ def token_required(f):
             user_id = get_jwt_identity()
             current_user = User.query.get(int(user_id))
             if not current_user:
-                print(f"❌ Auth Error: User ID {user_id} not found in database.")
+                print(f"[FAIL] Auth Error: User ID {user_id} not found in database.")
                 return jsonify({'message': 'User not found!'}), 401
         except Exception as e:
-            print(f"❌ Auth Error: Token verification failed. {str(e)}")
+            print(f"[FAIL] Auth Error: Token verification failed. {str(e)}")
             return jsonify({'message': 'Token is invalid!', 'error': str(e)}), 401
             
         return f(current_user, *args, **kwargs)
@@ -186,7 +187,7 @@ def signup():
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        print(f"❌ DB ERROR in signup: {str(e)}")
+        print(f"[FAIL] DB ERROR in signup: {str(e)}")
         return jsonify({"error": "Database error", "message": str(e)}), 500
     
     # Send OTP (Logs to console if SMTP not set)
@@ -195,48 +196,47 @@ def signup():
     return jsonify({"message": "OTP sent successfully", "otp": otp}), 200
 
 @auth_bp.route('/verify-otp', methods=['POST'])
+@cross_origin()
 def verify_otp():
     data = request.get_json()
     if not data:
-        print("❌ Verify OTP Failed: No JSON body received or Content-Type not application/json")
+        print("[FAIL] Verify OTP Failed: No JSON body received or Content-Type not application/json")
         return jsonify({"error": "Invalid request body"}), 400
 
-    email = data.get('email', '').strip().lower()
-    otp = data.get('otp', '').strip()
+    otp = data.get('otp')
+    if otp:
+        otp = str(otp).strip()
 
-    if not email or not otp:
-        print(f"❌ Verify OTP Failed: Missing email or OTP. Data received: {data}")
-        return jsonify({"error": "Email and OTP are required"}), 400
+    if not otp:
+        print(f"[FAIL] Verify OTP Failed: Missing OTP. Data received: {data}")
+        return jsonify({"error": "OTP is required"}), 400
 
     # 1. Check DB Storage
-    print(f"🔍 Verifying OTP for: '{email}'")
-    record = OtpVerification.query.filter_by(email=email).first()
+    print(f"[DEBUG] Verifying OTP by code: '{otp}'")
+    record = OtpVerification.query.filter_by(otp=otp).first()
+    
+    email = record.email if record else None
     
     if not record:
-        # UX Improvement: Check if user is already in DB to give better error
-        existing_user = User.query.filter_by(email=email).first()
-        if existing_user:
-             if existing_user.is_verified:
-                 print(f"✅ Verify OTP: User '{email}' already verified. Redirecting to login.")
-                 return jsonify({"message": "User already verified. Please login."}), 200
-             else:
-                 return jsonify({"error": "OTP expired. Please click Resend OTP."}), 400
-        print(f"❌ Verify OTP Failed: No pending OTP record found for '{email}'.")
+        # DEBUG: List all OTPs to see what's going on
+        all_otps = OtpVerification.query.all()
+        print(f"[DEBUG] Current OTPs in DB: {[f'{o.otp} ({o.email})' for o in all_otps]}")
+        print(f"[FAIL] Verify OTP Failed: No pending OTP record found.")
         return jsonify({"error": "No pending signup found. Check for typos or sign up again."}), 400
 
     # 2. Validate OTP and Expiry
     if record.otp != otp:
-        print(f"❌ Verify OTP Failed: Invalid OTP for '{email}'. Expected: {record.otp}, Received: {otp}")
+        print(f"[FAIL] Verify OTP Failed: Invalid OTP for '{email}'. Expected: {record.otp}, Received: {otp}")
         return jsonify({"error": "Invalid OTP"}), 400
     
     if datetime.datetime.utcnow() > record.expiry:
-        print(f"❌ Verify OTP Failed: OTP expired for '{email}'.")
+        print(f"[FAIL] Verify OTP Failed: OTP expired for '{email}'.")
         try:
             db.session.delete(record)
             db.session.commit()
         except Exception as e:
             db.session.rollback()
-            print(f"❌ DB ERROR in verify_otp (expiry cleanup): {str(e)}")
+            print(f"[FAIL] DB ERROR in verify_otp (expiry cleanup): {str(e)}")
         return jsonify({"error": "OTP has expired"}), 400
 
     # 3. Create User in Database
@@ -246,7 +246,7 @@ def verify_otp():
             db.session.commit()
         except Exception as e:
             db.session.rollback()
-            print(f"❌ DB ERROR in verify_otp (cleanup existing): {str(e)}")
+            print(f"[FAIL] DB ERROR in verify_otp (cleanup existing): {str(e)}")
         return jsonify({"message": "User already verified. Please login."}), 200
 
     # Every new signup is a SUPER_ADMIN with their own organization.
@@ -291,12 +291,12 @@ def verify_otp():
             db.session.commit()
         # ------------------------------------
 
-        print(f"✅ User created successfully: {email} (Role: {role})")
+        print(f"[OK] User created successfully: {email} (Role: {role})")
         return jsonify({"message": "Signup successful"}), 200
 
     except Exception as e:
         db.session.rollback()
-        print(f"❌ Database Error in verify-otp: {e}")
+        print(f"[FAIL] Database Error in verify-otp: {e}")
         return jsonify({"error": str(e)}), 500
     
 @auth_bp.route('/resend-otp', methods=['POST'])
@@ -348,7 +348,7 @@ def resend_otp():
             return jsonify({"message": "OTP resent successfully", "otp": new_otp}), 200
         except Exception as e:
             db.session.rollback()
-            print(f"❌ DB ERROR in resend_otp: {str(e)}")
+            print(f"[FAIL] DB ERROR in resend_otp: {str(e)}")
             return jsonify({"error": "Database error", "message": str(e)}), 500
 
 @auth_bp.route('/login', methods=['POST'])
@@ -368,11 +368,11 @@ def login():
 
     # 1. Verify credentials
     if not user:
-        print(f"❌ Login Failed: User '{email}' not found in DB.")
+        print(f"[FAIL] Login Failed: User '{email}' not found in DB.")
         return jsonify({"error": "Invalid email or password"}), 401
 
     if not check_password_hash(user.password, password):
-        print(f"❌ Login Failed: Password mismatch for '{email}'.")
+        print(f"[FAIL] Login Failed: Password mismatch for '{email}'.")
         return jsonify({"error": "Invalid email or password"}), 401
 
     # 1.1 Check if user is verified from signup
@@ -397,12 +397,12 @@ def login():
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        print(f"❌ DB ERROR in login (history): {str(e)}")
+        print(f"[FAIL] DB ERROR in login (history): {str(e)}")
         return jsonify({"error": "Database error logging login", "message": str(e)}), 500
 
     # 3. Determine Full Redirect URL
     full_url = construct_dashboard_url(user)
-    print(f"✅ Login Successful for {user.email}. URL generated: {full_url}")
+    print(f"[OK] Login Successful for {user.email}. URL generated: {full_url}")
 
     # 4. Return the mandatory response
     return jsonify({
@@ -547,7 +547,7 @@ def handle_oauth_login(email, name, provider, provider_id):
         }), 200
     except Exception as e:
         db.session.rollback()
-        print(f"❌ DB ERROR in handle_oauth_login: {str(e)}")
+        print(f"[FAIL] DB ERROR in handle_oauth_login: {str(e)}")
         return jsonify({"error": "Database error", "message": str(e)}), 500
 
 @auth_bp.route('/forgot-password', methods=['POST'])
@@ -575,11 +575,12 @@ def forgot_password():
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        print(f"❌ DB ERROR in forgot_password: {str(e)}")
+        print(f"[FAIL] DB ERROR in forgot_password: {str(e)}")
         return jsonify({"error": "Database error", "message": str(e)}), 500
     
     if send_email(email, "Reset Password OTP", f"Your password reset OTP is {otp}"):
         return jsonify({
+
             "message": "If this email is registered, an OTP has been sent."
         }), 200
     else:
@@ -618,53 +619,63 @@ def verify_reset_otp():
         return response, 200
     except Exception as e:
         db.session.rollback()
-        print(f"❌ DB ERROR in verify_reset_otp: {str(e)}")
+        print(f"[FAIL] DB ERROR in verify_reset_otp: {str(e)}")
         return jsonify({"error": "Database error", "message": str(e)}), 500
 
 @auth_bp.route('/reset-password', methods=['POST'])
 def reset_password():
     data = request.get_json() or {}
     
-    reset_token = request.cookies.get('reset_token')
-    if not reset_token:
-        return jsonify({"error": "Reset session not found. Please verify OTP again."}), 401
-
-    # Handle both snake_case and camelCase from frontend
+    # New flow: email, otp, new_password, confirm_password
+    email = data.get('email')
+    otp = data.get('otp')
     new_password = data.get("new_password") or data.get("newPassword")
     confirm_password = data.get("confirm_password") or data.get("confirmPassword")
 
-    if not all([new_password, confirm_password]):
-        print(f"❌ Reset Password Failed: Missing password fields. Data received: {list(data.keys())}")
-        return jsonify({"error": "All fields (new_password/newPassword, confirm_password/confirmPassword) are required"}), 400
+    # 1. Check all fields
+    if not email or not otp or not new_password or not confirm_password:
+        return jsonify({'message': 'All fields (email, otp, new_password, confirm_password) are required'}), 400
 
+    email = email.strip().lower()
+    otp = str(otp).strip()
+
+    # 2. Check passwords match
     if new_password != confirm_password:
-        print("❌ Reset Password Failed: Passwords do not match.")
-        return jsonify({"error": "Passwords do not match"}), 400
+        return jsonify({'message': 'Passwords do not match'}), 400
 
-    record = PasswordResetToken.query.filter_by(reset_token=reset_token).first()
+    # 3. Find OTP record
+    otp_record = PasswordResetToken.query.filter_by(email=email, otp=otp).first()
+    
+    if not otp_record:
+        print(f"[FAIL] Reset Password Failed: Invalid OTP for {email}")
+        return jsonify({'message': 'Invalid OTP'}), 401
 
-    if not record:
-        return jsonify({"error": "Invalid or expired reset token."}), 401
+    # 4. Check expiration
+    if datetime.datetime.utcnow() > otp_record.expires_at:
+        print(f"[FAIL] Reset Password Failed: OTP expired for {email}")
+        try:
+            db.session.delete(otp_record)
+            db.session.commit()
+        except:
+            db.session.rollback()
+        return jsonify({'message': 'OTP expired'}), 401
 
-    if not record.verified or datetime.datetime.utcnow() > record.expires_at:
-        db.session.delete(record)
-        db.session.commit()
-        return jsonify({"error": "OTP not verified or session expired. Please start over."}), 400
-
-    user = User.query.filter_by(email=record.email).first()
+    # 5. Update user password
+    user = User.query.filter_by(email=email).first()
     if not user:
-        print(f"❌ Reset Password Failed: User '{record.email}' not found.")
-        return jsonify({"error": "Invalid request"}), 400
+        return jsonify({'message': 'User not found'}), 404
 
     try:
         user.password = generate_password_hash(new_password)
-        db.session.delete(record)
+        
+        # 6. Mark OTP as used (Delete it)
+        db.session.delete(otp_record)
         db.session.commit()
-        print("✅ Password reset successful.")
-        response = jsonify({"message": "Password reset successfully"})
-        response.delete_cookie('reset_token')
-        return response, 200
+        
+        print(f"[OK] Password reset successful for {email}")
+        return jsonify({'message': 'Password reset successfully'}), 200
+        
     except Exception as e:
         db.session.rollback()
-        print(f"❌ DB ERROR in reset_password: {str(e)}")
+        print(f"[FAIL] DB ERROR in reset_password: {str(e)}")
         return jsonify({"error": "Database error", "message": str(e)}), 500

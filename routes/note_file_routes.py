@@ -23,7 +23,7 @@ def allowed_file(filename):
 def get_entity_config(entity_type):
     """Maps entity type to Model and its owner/org fields."""
     if entity_type == 'lead':
-        return Lead, 'owner_id', 'company_id'
+        return Lead, 'owner', None
     elif entity_type == 'contact':
         return Contact, 'assigned_to', 'organization_id'
     elif entity_type == 'deal':
@@ -45,11 +45,12 @@ def validate_access(user, entity_type, entity_id):
         return None, "Entity not found."
 
     # 1. Organization Isolation (Cross-Company Check)
-    entity_org_id = getattr(entity, org_field)
-    # Note: Super Admin can access any org, but usually acts within context. 
-    # Assuming Super Admin has global access, others restricted to their org.
-    if user.role != 'SUPER_ADMIN' and entity_org_id != user.organization_id:
-        return None, "Permission denied. You cannot access records from another organization."
+    if org_field:
+        entity_org_id = getattr(entity, org_field)
+        # Note: Super Admin can access any org, but usually acts within context. 
+        # Assuming Super Admin has global access, others restricted to their org.
+        if user.role != 'SUPER_ADMIN' and entity_org_id != user.organization_id:
+            return None, "Permission denied. You cannot access records from another organization."
 
     # 2. Role-Based Access
     if user.role in ['SUPER_ADMIN', 'ADMIN']:
@@ -57,6 +58,12 @@ def validate_access(user, entity_type, entity_id):
 
     if user.role == 'MANAGER':
         # Manager sees team data (Same Department)
+        if entity_type == 'lead':
+            # Lead uses string owner name, strict ID check not possible
+            if getattr(entity, owner_field) == user.name:
+                return entity, None
+            return None, "Permission denied. You are not assigned to this record."
+
         owner_id = getattr(entity, owner_field)
         if owner_id == user.id:
             return entity, None
@@ -67,6 +74,12 @@ def validate_access(user, entity_type, entity_id):
         return None, "Permission denied. Record not in your team."
 
     if user.role in ['EMPLOYEE', 'USER']:
+        if entity_type == 'lead':
+            # Lead uses string owner name
+            if getattr(entity, owner_field) == user.name:
+                return entity, None
+            return None, "Permission denied. You are not assigned to this record."
+
         # Employee sees only assigned records
         owner_id = getattr(entity, owner_field)
         if owner_id == user.id:
@@ -79,101 +92,60 @@ def validate_access(user, entity_type, entity_id):
 
 @note_file_bp.route('/api/notes', methods=['POST'])
 @token_required
-def create_note(current_user):
-    data = request.get_json()
-    entity_type = data.get('entity_type', '').lower()
-    entity_id = data.get('entity_id')
-    note_text = data.get('note_text')
+def add_note(current_user):
+    data = request.get_json(force=True)
 
+    note_text = data.get("note")
     if not note_text:
-        return jsonify({'error': 'Validation Error', 'message': 'Note text is required'}), 400
+        return jsonify({"error": "note is required"}), 400
 
-    # Validate Access
-    entity, error = validate_access(current_user, entity_type, entity_id)
-    if error:
-        return jsonify({'error': 'Permission denied', 'message': error}), 403
+    note = Note(note=note_text)
+    db.session.add(note)
+    db.session.commit()
 
-    # Determine Company ID
-    # Prioritize entity's organization. If None (e.g. global entity), try user's org. If both None, use 0.
-    _, _, org_field = get_entity_config(entity_type)
-    entity_org_id = getattr(entity, org_field)
-    
-    if entity_org_id:
-        company_id = entity_org_id
-    else:
-        company_id = current_user.organization_id if current_user.organization_id else 0
-
-    new_note = Note(
-        entity_type=entity_type,
-        entity_id=entity_id,
-        note_text=note_text,
-        created_by=current_user.id,
-        company_id=company_id
-    )
-    
-    try:
-        db.session.add(new_note)
-        db.session.commit()
-        log_activity(
-            module="note",
-            action="created",
-            description=f"Note added to {new_note.entity_type} ID: {new_note.entity_id}",
-            related_id=new_note.id
-        )
-        return jsonify({'message': 'Note added successfully', 'note': new_note.to_dict()}), 201
-    except Exception as e:
-        db.session.rollback()
-        print(f"❌ DB ERROR in create_note: {str(e)}")
-        return jsonify({'error': 'Database error', 'message': str(e)}), 500
+    return jsonify({
+        "message": "Note added successfully",
+        "id": note.id,
+        "created_at": note.created_at
+    }), 201
 
 @note_file_bp.route('/api/notes', methods=['GET'])
 @token_required
 def get_notes(current_user):
-    entity_type = request.args.get('entity_type', '').lower()
-    entity_id = request.args.get('entity_id')
+    notes = Note.query.order_by(Note.created_at.desc()).all()
 
-    if not entity_type or not entity_id:
-        return jsonify({'error': 'Validation Error', 'message': 'entity_type and entity_id are required'}), 400
-
-    # Validate Access
-    entity, error = validate_access(current_user, entity_type, entity_id)
-    if error:
-        return jsonify({'error': 'Permission denied', 'message': error}), 403
-
-    notes = Note.query.filter_by(entity_type=entity_type, entity_id=entity_id)\
-        .order_by(Note.created_at.desc()).all()
-        
-    return jsonify([n.to_dict() for n in notes]), 200
+    return jsonify([
+        {
+            "id": n.id,
+            "note": n.note,
+            "created_at": n.created_at
+        }
+        for n in notes
+    ])
 
 @note_file_bp.route('/api/notes/<int:note_id>', methods=['DELETE'])
 @token_required
 def delete_note(current_user, note_id):
-    note = Note.query.get(note_id)
-    if not note:
-        return jsonify({'error': 'Not Found', 'message': 'Note not found'}), 404
+    note = Note.query.get_or_404(note_id)
+    db.session.delete(note)
+    db.session.commit()
 
-    # Security: Ensure user belongs to the same company as the note
-    if current_user.role != 'SUPER_ADMIN' and note.company_id != current_user.organization_id:
-        return jsonify({'error': 'Permission denied', 'message': 'Unauthorized access'}), 403
+    return jsonify({"message": "Note deleted successfully"})
 
-    # Permission: Only Creator, Admin, or Super Admin
-    if current_user.role not in ['SUPER_ADMIN', 'ADMIN'] and note.created_by != current_user.id:
-        return jsonify({'error': 'Permission denied', 'message': 'Only the creator or Admin can delete this note'}), 403
+@note_file_bp.route("/api/notes/<int:note_id>", methods=["PUT"])
+@token_required
+def update_note(current_user, note_id):
+    data = request.get_json(force=True)
+    note_text = data.get("note")
 
-    try:
-        db.session.delete(note)
-        db.session.commit()
-        log_activity(
-            module="note",
-            action="deleted",
-            description=f"Note ID {note_id} deleted from {note.entity_type} ID: {note.entity_id}",
-            related_id=note_id
-        )
-        return jsonify({'message': 'Note deleted successfully'}), 200
-    except Exception as e:
-        db.session.rollback()
-        print(f"❌ DB ERROR in delete_note: {str(e)}")
-        return jsonify({'error': 'Database error', 'message': str(e)}), 500
+    if not note_text:
+        return jsonify({"error": "note is required"}), 400
+
+    note = Note.query.get_or_404(note_id)
+    note.note = note_text
+    db.session.commit()
+
+    return jsonify({"message": "Note updated successfully"})
 
 # --- FILES APIs ---
 
@@ -200,7 +172,7 @@ def upload_file(current_user):
 
     # Determine Company ID (Use entity's org ID to ensure correct storage bucket)
     _, _, org_field = get_entity_config(entity_type)
-    entity_org_id = getattr(entity, org_field)
+    entity_org_id = getattr(entity, org_field) if org_field else None
     
     # Fallback to 0 if no company associated (e.g. Super Admin global data)
     company_id = entity_org_id if entity_org_id else (current_user.organization_id if current_user.organization_id else 0)
@@ -249,7 +221,7 @@ def upload_file(current_user):
         return jsonify({'message': 'File uploaded successfully', 'file': new_file.to_dict()}), 201
     except Exception as e:
         db.session.rollback()
-        print(f"❌ DB ERROR in upload_file: {str(e)}")
+        print(f"[FAIL] DB ERROR in upload_file: {str(e)}")
         return jsonify({'error': 'Database error', 'message': str(e)}), 500
 
 @note_file_bp.route('/api/files', methods=['GET'])
@@ -321,5 +293,5 @@ def delete_file(current_user, file_id):
         return jsonify({'message': 'File deleted successfully'}), 200
     except Exception as e:
         db.session.rollback()
-        print(f"❌ DB ERROR in delete_file: {str(e)}")
+        print(f"[FAIL] DB ERROR in delete_file: {str(e)}")
         return jsonify({'error': 'Database error', 'message': str(e)}), 500

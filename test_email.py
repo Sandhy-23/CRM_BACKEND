@@ -19,23 +19,23 @@ def test_smtp_connection():
     print(f"MAIL_USERNAME: {smtp_user}")
     
     if smtp_user == "your_email@gmail.com":
-        print("❌ ERROR: You are using the placeholder email 'your_email@gmail.com'.")
+        print("[FAIL] ERROR: You are using the placeholder email 'your_email@gmail.com'.")
         print("   -> Please open .env and replace it with your actual Gmail address.")
         return
 
     if not smtp_password:
-        print("❌ MAIL_PASSWORD is missing in .env file!")
+        print("[FAIL] MAIL_PASSWORD is missing in .env file!")
         return
 
     # Mask password for security but show length
     print(f"MAIL_PASSWORD: {'*' * len(smtp_password)} (Length: {len(smtp_password)})")
 
     if len(smtp_password) != 16:
-        print(f"⚠️ WARNING: App Passwords are exactly 16 characters. Yours is {len(smtp_password)}.")
+        print(f"[WARN] App Passwords are exactly 16 characters. Yours is {len(smtp_password)}.")
         print("   -> Check for spaces or hidden characters in your .env file.")
 
     if " " in smtp_password:
-        print("❌ ERROR: Password contains spaces. Please remove spaces in .env file.")
+        print("[FAIL] ERROR: Password contains spaces. Please remove spaces in .env file.")
         # We continue anyway to show the server response
     
     print("\nAttempting to connect to Gmail SMTP...")
@@ -46,10 +46,10 @@ def test_smtp_connection():
         server.starttls()
         server.ehlo()
         server.login(smtp_user, smtp_password)
-        print("✅ SUCCESS! Username and Password are correct.")
+        print("[OK] SUCCESS! Username and Password are correct.")
         server.quit()
     except Exception as e:
-        print(f"❌ FAILED: {e}")
+        print(f"[FAIL] FAILED: {e}")
         print("\nTroubleshooting Tips:")
         print("1. Ensure you are using a Google App Password (16 chars), NOT your Gmail login password.")
         print(f"2. Make sure this App Password was generated specifically for the account: {smtp_user}")

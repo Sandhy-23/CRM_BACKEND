@@ -5,21 +5,13 @@ class Note(db.Model):
     __tablename__ = 'notes'
     
     id = db.Column(db.Integer, primary_key=True)
-    entity_type = db.Column(db.String(50), nullable=False) # lead, contact, deal
-    entity_id = db.Column(db.Integer, nullable=False)
-    note_text = db.Column(db.Text, nullable=False)
-    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    company_id = db.Column(db.Integer, nullable=False)
+    note = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def to_dict(self):
         return {
             "id": self.id,
-            "entity_type": self.entity_type,
-            "entity_id": self.entity_id,
-            "note_text": self.note_text,
-            "created_by": self.created_by,
+            "note": self.note,
             "created_at": self.created_at.isoformat()
         }
 

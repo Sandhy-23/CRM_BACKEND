@@ -191,7 +191,7 @@ def update_profile(current_user, org_name):
             return jsonify({"message": "Profile updated successfully", "name": current_user.name}), 200
         except Exception as e:
             db.session.rollback()
-            print(f"❌ DB ERROR in update_profile: {str(e)}")
+            print(f"[FAIL] DB ERROR in update_profile: {str(e)}")
             return jsonify({"error": "Database error", "message": str(e)}), 500
     
     return jsonify({"message": "No changes provided"}), 400
@@ -225,8 +225,8 @@ def get_kpis(current_user):
     activities_query = Activity.query
 
     if start_date:
-        leads_query = leads_query.filter(Lead.created_at >= start_date, Lead.company_id == current_user.organization_id)
-        deals_query = deals_query.filter(Deal.created_at >= start_date, Deal.company_id == current_user.organization_id)
+        leads_query = leads_query.filter(Lead.created_at >= start_date)
+        deals_query = deals_query.filter(Deal.created_at >= start_date, Deal.organization_id == current_user.organization_id)
         activities_query = activities_query.filter(Activity.created_at >= start_date, Activity.organization_id == current_user.organization_id)
 
     # 3. Calculate Metrics
@@ -332,7 +332,7 @@ def create_employee(current_user):
         )
     except Exception as e:
         db.session.rollback()
-        print(f"❌ DB ERROR in create_employee: {str(e)}")
+        print(f"[FAIL] DB ERROR in create_employee: {str(e)}")
         return jsonify({"error": "Database error", "message": str(e)}), 500
 
     # Email Notification with Credentials
@@ -446,7 +446,7 @@ def update_employee(current_user, user_id):
         return jsonify({"message": "Employee updated successfully"}), 200
     except Exception as e:
         db.session.rollback()
-        print(f"❌ DB ERROR in update_employee: {str(e)}")
+        print(f"[FAIL] DB ERROR in update_employee: {str(e)}")
         return jsonify({"error": "Database error", "message": str(e)}), 500
 
 @dashboard_bp.route("/employees/<int:user_id>", methods=["DELETE"])
@@ -479,7 +479,7 @@ def delete_employee(current_user, user_id):
         return jsonify({"message": "Employee deleted successfully"}), 200
     except Exception as e:
         db.session.rollback()
-        print(f"❌ DB ERROR in delete_employee: {str(e)}")
+        print(f"[FAIL] DB ERROR in delete_employee: {str(e)}")
         return jsonify({"error": "Database error", "message": str(e)}), 500
 
 # --- ROLE SPECIFIC ENDPOINTS ---
@@ -587,7 +587,7 @@ def leads_summary(current_user):
     # Reuse the RBAC logic from lead_routes if possible, or replicate simple filter
     query = Lead.query
     if current_user.role != 'SUPER_ADMIN':
-        query = query.filter_by(company_id=current_user.organization_id)
+        pass
         
     total = query.count()
     today = datetime.utcnow().date()
