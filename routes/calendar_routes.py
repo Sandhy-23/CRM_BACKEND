@@ -6,6 +6,7 @@ from models.calendar_event import CalendarEvent
 from models.reminder import Reminder
 from datetime import datetime, timedelta
 from sqlalchemy import or_
+from models.task import Task
 from models.activity_logger import log_activity
 
 calendar_bp = Blueprint('calendar', __name__)
@@ -62,6 +63,29 @@ def create_event(current_user):
         db.session.add(new_event)
         db.session.flush() # Flush to get new_event.id for the reminder
 
+        # --- Auto-create Task from Calendar Event (as per user request) ---
+        try:
+            task_date = start_datetime.date()
+            task_time = start_datetime.time().strftime('%H:%M:%S')
+
+            new_task = Task(
+                title=new_event.title,
+                description=new_event.description or f"Event: {new_event.title}",
+                task_date=task_date,
+                task_time=task_time,
+                status='Pending',
+                company_id=current_user.organization_id,
+                assigned_to=new_event.assigned_to,
+                created_by=current_user.id,
+                due_date=task_date,
+                source_type='calendar',
+                source_id=new_event.id
+            )
+            db.session.add(new_task)
+            print(f"[INFO] Auto-creating task for Event ID {new_event.id}")
+        except Exception as e:
+            print(f"[FAIL] Error auto-creating task from event: {e}")
+
         remind_before_minutes = data.get('remind_before_minutes')
         if remind_before_minutes:
             try:
@@ -99,7 +123,7 @@ def get_events(current_user):
     
     return jsonify([e.to_dict() for e in events]), 200
 
-@calendar_bp.route('/reminders/today', methods=['GET'])
+@calendar_bp.route('/reminders/today', methods=['GET', 'OPTIONS'])
 @token_required
 def get_today_reminders(current_user):
     now = datetime.utcnow()
@@ -114,7 +138,7 @@ def get_today_reminders(current_user):
     reminders = query.order_by(Reminder.remind_at.asc()).all()
     return jsonify([r.to_dict() for r in reminders]), 200
 
-@calendar_bp.route('/reminders/<int:reminder_id>/sent', methods=['PUT'])
+@calendar_bp.route('/reminders/<int:reminder_id>/sent', methods=['PUT', 'OPTIONS'])
 @token_required
 def mark_reminder_sent(current_user, reminder_id):
     # Find the reminder by its ID, but scoped to the user's company for security.

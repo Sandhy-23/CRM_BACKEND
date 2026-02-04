@@ -11,7 +11,6 @@ from models.note_file import Note
 from models.user import User
 
 # Import existing role-based query helpers
-from routes.contact_routes import get_contact_query
 from routes.lead_routes import get_lead_query, Account
 from routes.deal_routes import get_deal_query
 from models.activity_logger import log_activity
@@ -22,61 +21,44 @@ import_export_bp = Blueprint('import_export', __name__)
 
 def process_contact_import(df, current_user):
     """Handles the logic for importing contacts."""
-    required_columns = ['first_name', 'email', 'mobile']
+    required_columns = ['name', 'email']
     if not all(col in df.columns for col in required_columns):
         missing = [col for col in required_columns if col not in df.columns]
         return jsonify({'error': 'File Processing Error', 'message': f'Missing required columns: {", ".join(missing)}'}), 400
 
     imported_count, failed_count, errors = 0, 0, []
     # Fetch existing emails and mobiles for duplicate checking
-    existing_contacts = Contact.query.filter_by(organization_id=current_user.organization_id).with_entities(Contact.email, Contact.mobile).all()
-    existing_emails = {c.email for c in existing_contacts}
-    existing_mobiles = {c.mobile for c in existing_contacts if c.mobile}
+    existing_emails = {c.email for c in Contact.query.with_entities(Contact.email).all()}
 
     for index, row in df.iterrows():
         row_num = index + 2  # Account for header and 0-based index
         email = str(row.get('email', '')).strip()
-        mobile = str(row.get('mobile', '')).strip()
-        first_name = str(row.get('first_name', '')).strip()
+        name = str(row.get('name', '')).strip()
 
-        if not first_name:
-            errors.append({'row': row_num, 'reason': 'Missing first_name'})
-            failed_count += 1
-            continue
-        if not email or not mobile:
-            errors.append({'row': row_num, 'reason': 'Missing email or mobile'})
+        if not name or not email:
+            errors.append({'row': row_num, 'reason': 'Missing name or email'})
             failed_count += 1
             continue
         if email in existing_emails:
-            errors.append({'row': row_num, 'reason': f'Email "{email}" already exists in your organization'})
-            failed_count += 1
-            continue
-        if mobile in existing_mobiles:
-            errors.append({'row': row_num, 'reason': f'Mobile "{mobile}" already exists in your organization'})
+            errors.append({'row': row_num, 'reason': f'Email "{email}" already exists'})
             failed_count += 1
             continue
 
         try:
             new_contact = Contact(
-                first_name=first_name,
-                last_name=str(row.get('last_name', '')).strip(),
-                name=f"{first_name} {str(row.get('last_name', '')).strip()}".strip(),
+                name=name,
                 email=email,
-                mobile=mobile,
                 phone=str(row.get('phone', '')).strip(),
                 company=str(row.get('company', '')).strip(),
+                owner=str(row.get('owner', '')).strip(),
+                last_contact=str(row.get('last_contact', '')).strip(),
                 status=str(row.get('status', 'Active')).strip(),
-                source='Import',
-                organization_id=current_user.organization_id,
-                created_by=current_user.id,
-                owner_id=current_user.id,
-                assigned_to=current_user.id
             )
             db.session.add(new_contact)
             existing_emails.add(email)
-            existing_mobiles.add(mobile)
             imported_count += 1
         except Exception as e:
+            db.session.rollback()
             errors.append({'row': row_num, 'reason': f'Database error: {str(e)}'})
             failed_count += 1
 
@@ -125,13 +107,18 @@ def process_lead_import(df, current_user):
                 company=company,
                 email=email if email else None,
                 phone=str(row.get('phone', '')).strip(),
-                source='Import',
-                status=str(row.get('status', 'New')).strip()
+                source=str(row.get('source', 'Import')).strip(),
+                status=str(row.get('status', 'New')).strip(),
+                score=str(row.get('score', 'N/A')).strip(),
+                sla=str(row.get('sla', 'N/A')).strip(),
+                owner=str(row.get('owner', 'Unassigned')).strip(),
+                description=str(row.get('description', 'Imported lead.')).strip()
             )
             db.session.add(new_lead)
             if email: existing_emails.add(email)
             imported_count += 1
         except Exception as e:
+            db.session.rollback()
             errors.append({'row': row_num, 'reason': f'Database error: {str(e)}'})
             failed_count += 1
             
@@ -179,8 +166,19 @@ def export_data(current_user, module):
     df = pd.DataFrame()
 
     if module == 'contacts':
-        records = get_contact_query(current_user).filter(Contact.status == 'Active').all()
-        if records: df = pd.DataFrame([r.to_dict() for r in records])
+        records = Contact.query.all()
+        if records:
+            data = [{
+                "id": r.id,
+                "name": r.name,
+                "company": r.company,
+                "email": r.email,
+                "phone": r.phone,
+                "owner": r.owner,
+                "last_contact": r.last_contact,
+                "status": r.status
+            } for r in records]
+            df = pd.DataFrame(data)
     
     elif module == 'leads':
         records = get_lead_query(current_user).filter(Lead.status != 'Converted').all()
@@ -189,7 +187,11 @@ def export_data(current_user, module):
                 "id": l.id, "name": l.name,
                 "company": l.company, "email": l.email, "phone": l.phone,
                 "status": l.status, "source": l.source, "owner": l.owner,
-                "created_at": l.created_at.isoformat() if l.created_at else None
+                "score": getattr(l, 'score', None),
+                "sla": getattr(l, 'sla', None),
+                "description": getattr(l, 'description', None),
+                "created_at": l.created_at.isoformat() if l.created_at else None,
+                "updated_at": l.updated_at.isoformat() if hasattr(l, 'updated_at') and l.updated_at else None
             } for l in records]
             df = pd.DataFrame(data)
 
@@ -197,8 +199,14 @@ def export_data(current_user, module):
         records = get_deal_query(current_user).all()
         if records:
             data = [{
-                "id": d.id, "title": d.title, "amount": d.amount,
-                "stage": d.stage, "owner_id": d.owner_id, "organization_id": d.organization_id,
+                "id": d.id,
+                "pipeline": d.pipeline,
+                "title": d.title,
+                "company": getattr(d, 'company', None),
+                "stage": d.stage,
+                "value": getattr(d, 'value', None),
+                "owner": getattr(d, 'owner', None),
+                "close_date": str(d.close_date) if d.close_date else None,
                 "created_at": d.created_at.isoformat() if d.created_at else None
             } for d in records]
             df = pd.DataFrame(data)

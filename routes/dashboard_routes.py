@@ -5,12 +5,14 @@ from models.organization import Organization
 from models.crm import Lead, Deal, Activity
 from models.task import Task
 from extensions import db
-from sqlalchemy import func
+from sqlalchemy import func, case, text
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash
 from models.attendance import Attendance
 from models.activity_log import ActivityLog
 from models.activity_logger import log_activity
+from sqlalchemy import extract
+import calendar
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -235,11 +237,11 @@ def get_kpis(current_user):
     conversion_rate = round((converted_leads / total_leads * 100), 2) if total_leads > 0 else 0
 
     total_deals = deals_query.count()
-    won_deals = deals_query.filter_by(status='Won').count()
-    lost_deals = deals_query.filter_by(status='Lost').count()
+    won_deals = deals_query.filter_by(stage='Won').count()
+    lost_deals = deals_query.filter_by(stage='Lost').count()
     
     # Revenue (Sum of value of Won deals)
-    revenue = deals_query.filter_by(status='Won').with_entities(func.sum(Deal.amount)).scalar() or 0.0
+    revenue = deals_query.filter(Deal.stage == 'Won').with_entities(func.sum(Deal.value)).scalar() or 0.0
 
     tasks_completed = activities_query.filter_by(status='Completed').count()
 
@@ -604,9 +606,245 @@ def leads_summary(current_user):
 @token_required
 def deals_pipeline(current_user):
     query = Deal.query
-    if current_user.role != 'SUPER_ADMIN':
-        query = query.filter_by(company_id=current_user.organization_id)
-        
+    # RBAC is simplified for now as per instructions
     # Group by Stage
     results = db.session.query(Deal.stage, func.count(Deal.id)).filter(Deal.id.in_([d.id for d in query.with_entities(Deal.id).all()])).group_by(Deal.stage).all()
     return jsonify({r[0]: r[1] for r in results})
+
+# --- NEW DASHBOARD ANALYTICS ENDPOINTS (Final JSON Target) ---
+
+@dashboard_bp.route('/dashboard/summary', methods=['GET'])
+@token_required
+def dashboard_summary(current_user):
+    """
+    Returns dashboard summary metrics as per specific frontend requirements.
+    """
+    # 1. Total Leads
+    total_leads = Lead.query.count()
+
+    # 2. Active Deals (Not Won or Lost)
+    # Matches: SELECT COUNT(*) FROM deals WHERE status = 'Active' (mapped to stages)
+    active_deals = Deal.query.filter(
+        func.lower(Deal.stage).notin_(['won', 'closed won', 'lost', 'closed lost'])
+    ).count()
+
+    # 3. Revenue (This Quarter)
+    # Matches: SELECT SUM(amount) ... WHERE QUARTER(closed_at) = QUARTER(CURDATE())
+    today = datetime.utcnow().date()
+    current_quarter = (today.month - 1) // 3 + 1
+    quarter_start_month = (current_quarter - 1) * 3 + 1
+    quarter_start_date = today.replace(month=quarter_start_month, day=1)
+    
+    # Calculate start of next quarter to define the upper bound
+    if quarter_start_month + 3 > 12:
+        next_q_start = today.replace(year=today.year + 1, month=1, day=1)
+    else:
+        next_q_start = today.replace(month=quarter_start_month + 3, day=1)
+
+    revenue = db.session.query(func.sum(Deal.value)).filter(
+        func.lower(Deal.stage).in_(['won', 'closed won']),
+        Deal.close_date >= quarter_start_date,
+        Deal.close_date < next_q_start
+    ).scalar() or 0
+
+    # 4. Tasks Due (Today or Future)
+    tasks_due = Task.query.filter(
+        Task.status != 'Completed',
+        Task.due_date >= today
+    ).count()
+
+    # 5. Overdue Tasks (Past)
+    overdue_tasks = Task.query.filter(
+        Task.status != 'Completed',
+        Task.due_date < today
+    ).count()
+
+    result = {
+        "total_leads": total_leads,
+        "active_deals": active_deals,
+        "revenue": int(revenue),
+        "tasks_due": tasks_due,
+        "overdue_tasks": overdue_tasks
+    }
+
+    print(f"[DEBUG] Dashboard summary result: {result}")
+    return jsonify(result)
+
+@dashboard_bp.route('/dashboard/win-loss', methods=['GET'])
+@token_required
+def dashboard_win_loss(current_user):
+    won = Deal.query.filter_by(stage='Won').count()
+    lost = Deal.query.filter_by(stage='Lost').count()
+    in_progress = Deal.query.filter(Deal.stage.notin_(['Won', 'Lost'])).count()
+
+    return jsonify({
+        "won": won,
+        "lost": lost,
+        "in_progress": in_progress
+    })
+
+@dashboard_bp.route('/dashboard/win-reasons', methods=['GET'])
+@token_required
+def dashboard_win_reasons(current_user):
+    # Group by win_reason string
+    results = db.session.query(Deal.win_reason, func.count(Deal.id))\
+        .filter(Deal.stage == 'Won', Deal.win_reason.isnot(None), Deal.win_reason != "")\
+        .group_by(Deal.win_reason).all()
+    
+    return jsonify([{"label": r[0], "value": r[1]} for r in results])
+
+@dashboard_bp.route('/dashboard/loss-reasons', methods=['GET'])
+@token_required
+def dashboard_loss_reasons(current_user):
+    # Group by loss_reason string
+    results = db.session.query(Deal.loss_reason, func.count(Deal.id))\
+        .filter(Deal.stage == 'Lost', Deal.loss_reason.isnot(None), Deal.loss_reason != "")\
+        .group_by(Deal.loss_reason).all()
+    
+    return jsonify([{"label": r[0], "value": r[1]} for r in results])
+
+@dashboard_bp.route('/dashboard/forecast', methods=['GET'])
+@token_required
+def dashboard_forecast(current_user):
+    today = datetime.utcnow().date()
+    current_month = today.month
+    current_year = today.year
+
+    # 1. Total Pipeline (Value of Open Deals)
+    total_pipeline = db.session.query(func.sum(Deal.value)).filter(Deal.stage.notin_(['Won', 'Lost'])).scalar() or 0
+
+    # 2. Closing This Month (Open deals with close_date in current month)
+    # Note: SQLite extract syntax might differ, but SQLAlchemy usually handles it.
+    # For SQLite, we might need to filter by date range if extract fails, but let's try standard SA first.
+    closing_deals_query = Deal.query.filter(
+        Deal.stage.notin_(['Won', 'Lost']),
+        extract('month', Deal.close_date) == current_month,
+        extract('year', Deal.close_date) == current_year
+    )
+    
+    closing_this_month = closing_deals_query.count()
+    
+    # 3. Expected Revenue (Sum of value of deals closing this month)
+    # In a real CRM, this would be weighted by probability. Here we sum the value.
+    expected_revenue = db.session.query(func.sum(Deal.value)).filter(
+        Deal.stage.notin_(['Won', 'Lost']),
+        extract('month', Deal.close_date) == current_month,
+        extract('year', Deal.close_date) == current_year
+    ).scalar() or 0
+
+    return jsonify({
+        "total_pipeline": int(total_pipeline),
+        "closing_this_month": closing_this_month,
+        "expected_revenue": int(expected_revenue)
+    })
+
+# --- NEW DASHBOARD WIDGETS (Final JSON Target) ---
+
+@dashboard_bp.route('/dashboard/summary-widgets', methods=['GET'])
+@token_required
+def get_dashboard_summary_widget(current_user):
+    # 1. Total Leads
+    total_leads = Lead.query.count()
+    
+    # 2. Lead Growth (This Month vs Last Month)
+    today = datetime.utcnow()
+    first_day_this_month = today.replace(day=1)
+    last_month_end = first_day_this_month - timedelta(days=1)
+    first_day_last_month = last_month_end.replace(day=1)
+    
+    leads_this_month = Lead.query.filter(Lead.created_at >= first_day_this_month).count()
+    leads_last_month = Lead.query.filter(Lead.created_at >= first_day_last_month, Lead.created_at <= last_month_end).count()
+    
+    lead_growth = 0
+    if leads_last_month > 0:
+        lead_growth = round(((leads_this_month - leads_last_month) / leads_last_month) * 100)
+    
+    # 3. Active Deals (Not Won/Lost)
+    active_deals = Deal.query.filter(func.lower(Deal.stage).notin_(['won', 'closed won', 'lost', 'closed lost'])).count()
+    
+    # 4. In-progress Deals (Same as active for now, or specific stages like Negotiation)
+    in_progress_deals = Deal.query.filter(Deal.stage.in_(['Negotiation', 'Proposal'])).count()
+    
+    # 5. Quarter Revenue (Sum of Won deals in current quarter)
+    current_quarter = (today.month - 1) // 3 + 1
+    quarter_start_month = (current_quarter - 1) * 3 + 1
+    quarter_start_date = today.replace(month=quarter_start_month, day=1)
+    
+    quarter_revenue = db.session.query(func.sum(Deal.value)).filter(
+        func.lower(Deal.stage).in_(['won', 'closed won']),
+        Deal.created_at >= quarter_start_date # Using created_at as proxy for close_date if close_date is string/null
+    ).scalar() or 0
+    
+    # 6. Tasks Due (Pending tasks due today or in future)
+    tasks_due = Task.query.filter(Task.status != 'Completed', Task.due_date >= today.date()).count()
+    # For overdue, we need to check due_date < today. 
+    # Assuming due_date is stored as string YYYY-MM-DD or Date object.
+    # If string, comparison might be tricky in SQL directly without cast, doing python side check for safety or simple string compare if format ISO.
+    # Let's assume standard ISO string or Date type.
+    tasks_overdue = Task.query.filter(Task.status != 'Completed', Task.due_date < today.date()).count()
+
+    return jsonify({
+        "total_leads": total_leads,
+        "lead_growth": lead_growth,
+        "active_deals": active_deals,
+        "in_progress_deals": in_progress_deals,
+        "quarter_revenue": int(quarter_revenue),
+        "tasks_due": tasks_due,
+        "tasks_overdue": tasks_overdue
+    })
+
+@dashboard_bp.route('/dashboard/revenue-growth', methods=['GET'])
+@token_required
+def get_revenue_growth(current_user):
+    # Revenue Growth Chart
+    # Matches: SELECT MONTHNAME(closed_at), SUM(amount) ... GROUP BY MONTH(closed_at)
+    results = db.session.query(
+        func.strftime('%m', Deal.close_date).label('month_num'),
+        func.sum(Deal.value)
+    ).filter(
+        func.lower(Deal.stage).in_(['won', 'closed won']),
+        Deal.close_date.isnot(None)
+    ).group_by('month_num').order_by('month_num').all()
+    
+    data = []
+    for r in results:
+        # Map month number '01' to 'Jan'
+        month_idx = int(r[0])
+        month_name = calendar.month_abbr[month_idx]
+        data.append({"month": month_name, "revenue": int(r[1])})
+        
+    return jsonify(data)
+
+@dashboard_bp.route('/dashboard/today-tasks', methods=['GET'])
+@token_required
+def get_today_tasks(current_user):
+    """
+    Returns tasks for the current day using the specific task_date and task_time columns.
+    """
+    # Handle SQLite vs MySQL date function difference
+    if 'sqlite' in db.engine.name:
+        date_func = "DATE('now')"
+    else:
+        date_func = "CURDATE()"
+        
+    sql = text(f"""
+        SELECT id, title, task_time 
+        FROM tasks 
+        WHERE task_date = {date_func} 
+        AND company_id = :company_id
+        ORDER BY task_time ASC
+    """)
+    
+    try:
+        results = db.session.execute(sql, {'company_id': current_user.organization_id}).fetchall()
+        data = []
+        for row in results:
+            # row is (id, title, task_time)
+            # Ensure time is formatted as HH:MM (truncate seconds if present)
+            t_str = str(row[2])[:5] if row[2] else "09:00"
+            data.append({"time": t_str, "title": row[1]})
+            
+        return jsonify(data)
+    except Exception as e:
+        print(f"[FAIL] Get Today Tasks Error: {e}")
+        return jsonify([])

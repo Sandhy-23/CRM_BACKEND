@@ -865,7 +865,7 @@
 						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"first_name\": \"John\",\n    \"last_name\": \"Doe\",\n    \"company\": \"Acme Inc\",\n    \"email\": \"john.doe@acme.com\",\n    \"phone\": \"1234567890\",\n    \"lead_source\": \"Website\"\n}"
+							"raw": "{\n  \"name\": \"Test Lead\",\n  \"email\": \"test@gmail.com\",\n  \"phone\": \"9000000001\",\n  \"company\": \"Test Company\",\n  \"source\": \"postman\"\n}"
 						},
 						"url": {
 							"raw": "http://127.0.0.1:5000/api/leads",
@@ -889,6 +889,52 @@
 							"host": [ "127", "0", "0", "1" ],
 							"port": "5000",
 							"path": [ "api", "leads" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Lead",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/leads/1",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "leads", "1" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Lead",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "PUT",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": \"Contacted\",\n    \"score\": \"Hot\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/leads/1",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "leads", "1" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Lead (Soft)",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/leads/1",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "leads", "1" ]
 						}
 					},
 					"response": []
@@ -1051,18 +1097,16 @@
 				{
 					"name": "Create Deal",
 					"request": {
-						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "", "type": "string" } ] },
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
 						"method": "POST",
 						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"title\": \"Website Project\",\n    \"amount\": 50000,\n    \"lead_id\": 1,\n    \"expected_close_date\": \"2026-02-15\",\n    \"pipeline_id\": 1,\n    \"stage_id\": 2\n}"
+							"raw": "{\n  \"title\": \"CRM Setup\",\n  \"company\": \"Acme Corp\",\n  \"stage\": \"Proposal\",\n  \"value\": 120000,\n  \"owner\": \"Varshini\",\n  \"close_date\": \"2026-02-12\"\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/deals",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
+							"raw": "{{base_url}}/api/deals",
+							"host": [ "{{base_url}}" ],
 							"path": [ "api", "deals" ]
 						}
 					},
@@ -1071,139 +1115,61 @@
 				{
 					"name": "Get Deals",
 					"request": {
-						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "", "type": "string" } ] },
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/deals",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
+							"raw": "{{base_url}}/api/deals",
+							"host": [ "{{base_url}}" ],
 							"path": [ "api", "deals" ]
 						}
 					},
 					"response": []
 				},
 				{
-					"name": "Update Deal Stage",
+					"name": "Update Deal",
+					"description": "Used for updating any field, including moving stages via drag-and-drop.",
 					"request": {
-						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "", "type": "string" } ] },
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
 						"method": "PUT",
 						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"stage_id\": 4\n}"
+							"raw": "{\n  \"stage\": \"Won\"\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/deals/1/stage",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
-							"path": [ "api", "deals", "1", "stage" ]
+							"raw": "{{base_url}}/api/deals/1",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "deals", "1" ]
 						}
 					},
 					"response": []
 				},
 				{
-					"name": "Close Deal",
-					"request": {
-						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "", "type": "string" } ] },
-						"method": "PUT",
-						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"status\": \"Won\"\n}"
-						},
-						"url": {
-							"raw": "http://127.0.0.1:5000/api/deals/1/close",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
-							"path": [ "api", "deals", "1", "close" ]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Close Deal (Detailed)",
+					"name": "Delete Deal",
 					"request": {
 						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
-						"method": "POST",
-						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"outcome\": \"WON\",\n  \"reason\": \"Best price\"\n}"
-						},
+						"method": "DELETE",
+						"header": [],
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/deals/1/close",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
-							"path": [ "api", "deals", "1", "close" ]
+							"raw": "{{base_url}}/api/deals/1",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "deals", "1" ]
 						}
 					},
 					"response": []
 				},
 				{
-					"name": "Win/Loss Summary",
+					"name": "Get Deal Analytics",
+					"description": "Provides aggregated data for dashboard widgets.",
 					"request": {
 						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/analytics/win-loss",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
-							"path": [ "api", "analytics", "win-loss" ]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Win Reasons",
-					"request": {
-						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "http://127.0.0.1:5000/api/analytics/win-reasons",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
-							"path": [ "api", "analytics", "win-reasons" ]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Loss Reasons",
-					"request": {
-						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "http://127.0.0.1:5000/api/analytics/loss-reasons",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
-							"path": [ "api", "analytics", "loss-reasons" ]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Deal Forecast",
-					"request": {
-						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "", "type": "string" } ] },
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "http://127.0.0.1:5000/api/deals/forecast",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
-							"path": [ "api", "deals", "forecast" ]
+							"raw": "{{base_url}}/api/deals/analytics",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "deals", "analytics" ]
 						}
 					},
 					"response": []
@@ -1212,6 +1178,7 @@
 		},
 		{
 			"name": "Activity Timeline",
+			"description": "Centralized feed of all activities (deal updates, lead creation, etc.)",
 			"item": [
 				{
 					"name": "Get Activity Timeline",
@@ -1521,6 +1488,114 @@
 			]
 		},
 		{
+			"name": "Dashboard Widgets (New)",
+			"item": [
+				{
+					"name": "Dashboard Summary",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/dashboard/summary",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "dashboard", "summary" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Revenue Growth",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/dashboard/revenue-growth",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "dashboard", "revenue-growth" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Today Tasks",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/dashboard/today-tasks",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "dashboard", "today-tasks" ]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Reports",
+			"item": [
+				{
+					"name": "Reports Summary",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/reports/summary",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "reports", "summary" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Leads Trend",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/reports/leads-trend",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "reports", "leads-trend" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Lead Sources",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/reports/lead-sources",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "reports", "lead-sources" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Insights",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/reports/insights",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "reports", "insights" ]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
 			"name": "8. Contacts",
 			"item": [
 				{
@@ -1536,7 +1611,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"first_name\": \"Ravi\",\n  \"last_name\": \"Kumar\",\n  \"email\": \"ravi@gmail.com\",\n  \"mobile\": \"9876543210\",\n  \"company\": \"ABC Pvt Ltd\",\n  \"status\": \"Lead\"\n}",
+							"raw": "{\n  \"name\": \"Riya Sharma\",\n  \"company\": \"Acme Corp\",\n  \"email\": \"riya@acme.com\",\n  \"phone\": \"+91 98765 43210\",\n  \"owner\": \"Varshini\",\n  \"lastContact\": \"2 days ago\",\n  \"status\": \"Active\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -1618,7 +1693,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"first_name\": \"Jane\",\n    \"last_name\": \"Smith\",\n    \"status\": \"Active\"\n}",
+							"raw": "{\n    \"company\": \"XYZ Corp\",\n    \"status\": \"Customer\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -1640,7 +1715,8 @@
 					"response": []
 				},
 				{
-					"name": "5. Delete Contact (Soft)",
+					"name": "5. Delete Contact",
+					"description": "Performs a hard delete on the contact record.",
 					"request": {
 						"method": "DELETE",
 						"header": [
@@ -1676,7 +1752,7 @@
 							}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/contacts/search?q=ravi",
+							"raw": "{{base_url}}/api/contacts/search?q=riya",
 							"host": [
 								"{{base_url}}"
 							],
@@ -1688,7 +1764,7 @@
 							"query": [
 								{
 									"key": "q",
-									"value": "ravi"
+									"value": "riya"
 								}
 							]
 						}

@@ -98,6 +98,10 @@ def send_email(to_email, subject, body):
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        # Allow OPTIONS requests to bypass auth (CORS preflight)
+        if request.method == 'OPTIONS':
+            return jsonify({'status': 'OK'}), 200
+
         try:
             verify_jwt_in_request()
             user_id = get_jwt_identity()

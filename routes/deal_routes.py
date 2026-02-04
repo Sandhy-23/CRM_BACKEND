@@ -1,243 +1,251 @@
 from flask import Blueprint, request, jsonify
 from extensions import db
 from models.crm import Deal
-from models.user import User
-from models.pipeline import Pipeline, PipelineStage
 from routes.auth_routes import token_required
 from datetime import datetime, date
 from sqlalchemy import func
 from models.activity_logger import log_activity
-from services.automation_engine import run_automation
 
 deal_bp = Blueprint('deals', __name__)
 
 def get_deal_query(current_user):
-    """Enforce Role Based Access Control for Deals"""
-    query = Deal.query.filter_by(organization_id=current_user.organization_id)
+    """
+    Returns the base query for deals.
+    (Auth is handled by @token_required, RBAC is removed for now).
+    """
+    return Deal.query
 
-    if current_user.role in ['SUPER_ADMIN', 'ADMIN']:
-        return query
-    
-    if current_user.role == 'MANAGER':
-        # Manager sees own deals + team deals
-        team_ids = [u.id for u in User.query.filter_by(organization_id=current_user.organization_id, department=current_user.department).all()]
-        return query.filter(Deal.owner_id.in_(team_ids))
-    
-    # Employee/User sees only their own deals
-    return query.filter_by(owner_id=current_user.id)
+ALLOWED_PIPELINES = ["Deals", "Sales", "Partnership", "Enterprise"]
+ALLOWED_STAGES = ["Proposal", "Negotiation", "Won", "Lost"]
 
 @deal_bp.route('/api/deals', methods=['POST'])
 @token_required
 def create_deal(current_user):
     data = request.get_json()
-    
-    if not data.get('title') or not data.get('amount'):
-        return jsonify({'message': 'Title and Amount are required'}), 400
+    print("[DEBUG] /api/deals Body:", data)
 
-    # Parse expected_close_date
-    expected_date = None
-    if data.get('expected_close_date'):
+    title = data.get("title") or data.get("name")
+    
+    # Auto-capitalize to handle frontend sending lowercase
+    pipeline = data.get("pipeline", "").capitalize() if data.get("pipeline") else None
+    stage = data.get("stage", "").capitalize() if data.get("stage") else None
+    
+    # Special case for "Partnership" if frontend sends "Partnerships"
+    if pipeline == "Partnerships": pipeline = "Partnership"
+
+    print("PIPELINE RECEIVED:", pipeline)
+    print("STAGE RECEIVED:", stage)
+
+    if not title:
+        return jsonify({"error": "A 'title' or 'name' field is required"}), 400
+    if not pipeline:
+        return jsonify({"error": "The 'pipeline' field is required and cannot be empty"}), 400
+    if not stage:
+        return jsonify({"error": "The 'stage' field is required"}), 400
+
+    if pipeline not in ALLOWED_PIPELINES:
+        return jsonify({"error": "Invalid pipeline. Allowed: Deals, Sales, Partnership, Enterprise"}), 400
+
+    if stage not in ALLOWED_STAGES:
+        return jsonify({"error": "Invalid stage. Allowed: Proposal, Negotiation, Won, Lost"}), 400
+
+    close_date_obj = None
+    if data.get("close_date"):
         try:
-            expected_date = datetime.strptime(data.get('expected_close_date'), '%Y-%m-%d').date()
-        except ValueError:
-            pass
-
-    # Pipeline Logic
-    pipeline_id = data.get('pipeline_id')
-    stage_id = data.get('stage_id')
-    
-    # If no pipeline provided, fetch default
-    if not pipeline_id:
-        default_pipeline = Pipeline.query.filter_by(company_id=current_user.organization_id, is_default=True).first()
-        if default_pipeline:
-            pipeline_id = default_pipeline.id
-    
-    # If no stage provided, fetch first stage of pipeline
-    stage_name = "Prospecting" # Fallback
-    if pipeline_id and not stage_id:
-        first_stage = PipelineStage.query.filter_by(pipeline_id=pipeline_id).order_by(PipelineStage.stage_order).first()
-        if first_stage:
-            stage_id = first_stage.id
-            stage_name = first_stage.name
-    elif stage_id:
-        stage = PipelineStage.query.get(stage_id)
-        if stage: stage_name = stage.name
+            close_date_obj = datetime.strptime(data.get("close_date"), '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            return jsonify({'message': 'Invalid close_date format. Use YYYY-MM-DD.'}), 400
 
     new_deal = Deal(
-        title=data['title'],
-        amount=data.get('amount', 0),
-        lead_id=data.get('lead_id'),
-        expected_close_date=expected_date,
-        owner_id=current_user.id,
-        organization_id=current_user.organization_id,
-        stage=stage_name,
-        status="Open",
-        pipeline_id=pipeline_id,
-        stage_id=stage_id
+        lead_id=data.get('lead_id'), # Optional
+        pipeline=pipeline,
+        title=title,
+        company=data.get("company"),
+        stage=stage,
+        value=data.get("value", 0),
+        owner=data.get("owner"),
+        close_date=close_date_obj,
+        created_at=datetime.utcnow(),
+        organization_id=current_user.organization_id
     )
     
     db.session.add(new_deal)
     db.session.commit()
 
-    log_activity(
-        module="deal",
-        action="created",
-        description=f"Deal '{new_deal.title}' created with amount {new_deal.amount}.",
-        related_id=new_deal.id)
-    
-    # --- AUTOMATION TRIGGER ---
-    run_automation(
-        module="deal",
-        trigger_event="deal_created",
-        record=new_deal
-    )
-    return jsonify({'message': 'Deal created successfully', 'deal_id': new_deal.id}), 201
+    log_activity("deal", "created", f"Deal '{new_deal.title}' created in {new_deal.pipeline}.", new_deal.id)
+    return jsonify({
+        "message": "Deal created successfully",
+        "deal_id": new_deal.id
+    }), 201
 
 @deal_bp.route('/api/deals', methods=['GET'])
 @token_required
 def get_deals(current_user):
+    pipeline_filter = request.args.get('pipeline')
     query = get_deal_query(current_user)
-    deals = query.order_by(Deal.created_at.desc()).all()
     
-    return jsonify([
-        {
+    if pipeline_filter:
+        query = query.filter_by(pipeline=pipeline_filter)
+        
+    deals = query.order_by(Deal.id.desc()).all()
+    
+    return jsonify({
+        "deals": [{
             "id": d.id,
             "title": d.title,
-            "amount": d.amount,
+            "company": d.company,
+            "pipeline": d.pipeline,
             "stage": d.stage,
-            "status": d.status,
-            "expected_close_date": str(d.expected_close_date) if d.expected_close_date else None,
-            "pipeline_id": getattr(d, 'pipeline_id', None),
-            "stage_id": getattr(d, 'stage_id', None)
-        }
-        for d in deals
-    ]), 200
+            "value": d.value,
+            "owner": d.owner,
+            "close_date": str(d.close_date) if d.close_date else None
+        } for d in deals]
+    }), 200
 
-@deal_bp.route('/api/deals/<int:deal_id>/stage', methods=['PUT'])
+@deal_bp.route('/api/deals/pipelines', methods=['GET'])
 @token_required
-def update_stage(current_user, deal_id):
+def get_all_pipelines(current_user):
+    """Returns deals grouped by pipeline for the dashboard."""
+    deals = get_deal_query(current_user).all()
+    
+    grouped = {}
+    for d in deals:
+        p_name = d.pipeline
+        if p_name not in grouped:
+            grouped[p_name] = []
+        
+        grouped[p_name].append({
+            "id": d.id,
+            "lead_id": d.lead_id,
+            "title": d.title,
+            "company": d.company,
+            "stage": d.stage,
+            "value": d.value,
+            "owner": d.owner,
+            "close": str(d.close_date) if d.close_date else None
+        })
+        
+    return jsonify(grouped), 200
+
+@deal_bp.route('/api/deals/<int:deal_id>', methods=['GET'])
+@token_required
+def get_deal(current_user, deal_id):
+    d = get_deal_query(current_user).filter_by(id=deal_id).first_or_404()
+    return jsonify({
+        "id": d.id,
+        "lead_id": d.lead_id,
+        "title": d.title,
+        "company": d.company,
+        "pipeline": d.pipeline,
+        "stage": d.stage,
+        "value": d.value,
+        "owner": d.owner,
+        "close_date": str(d.close_date) if d.close_date else None
+    })
+
+@deal_bp.route('/api/deals/<int:deal_id>', methods=['PUT'])
+@token_required
+def update_deal(current_user, deal_id):
     deal = get_deal_query(current_user).filter_by(id=deal_id).first()
     if not deal:
         return jsonify({'message': 'Deal not found'}), 404
 
     data = request.get_json()
+    updated = False
+    for field in ["title", "company", "stage", "value", "owner", "pipeline", "close_date"]:
+        if field in data:
+            if field == 'close_date':
+                try:
+                    close_date_obj = datetime.strptime(data.get("close_date"), '%Y-%m-%d').date() if data.get("close_date") else None
+                    setattr(deal, field, close_date_obj)
+                except (ValueError, TypeError):
+                    return jsonify({'message': 'Invalid close_date format. Use YYYY-MM-DD.'}), 400
+            else:
+                setattr(deal, field, data[field])
+            updated = True
     
-    if 'stage_id' in data:
-        stage_id = data['stage_id']
-        stage = PipelineStage.query.filter_by(id=stage_id).first()
-        
-        if not stage:
-            return jsonify({'message': 'Stage not found'}), 404
-            
-        deal.stage_id = stage_id
-        deal.stage = stage.name # Sync legacy field
-        
-        # Auto-update status
-        if stage.name.lower() == 'won': deal.status = 'Won'
-        elif stage.name.lower() == 'lost': deal.status = 'Lost'
-        
+    if updated:
         db.session.commit()
-        log_activity(
-            module="deal",
-            action="stage_updated",
-            description=f"Deal '{deal.title}' moved to stage '{stage.name}'.",
-            related_id=deal.id
-        )
-
-        # --- AUTOMATION TRIGGER ---
-        run_automation(
-            module="deal",
-            trigger_event="deal_updated",
-            record=deal
-        )
-        return jsonify({'message': 'Deal stage updated'}), 200
-        
-    return jsonify({'message': 'Stage is required'}), 400
-
-@deal_bp.route('/api/deals/<int:deal_id>/close', methods=['PUT'])
-@token_required
-def close_deal(current_user, deal_id):
-    deal = get_deal_query(current_user).filter_by(id=deal_id).first()
-    if not deal:
-        return jsonify({'message': 'Deal not found'}), 404
-
-    data = request.get_json()
-    status = data.get('status')
+        log_activity("deal", "updated", f"Deal '{deal.title}' was updated.", deal.id)
+        return jsonify({'message': 'Deal updated successfully'}), 200
     
-    if status not in ['Won', 'Lost']:
-        return jsonify({'message': 'Status must be Won or Lost'}), 400
+    return jsonify({'message': 'No valid fields provided for update'}), 400
 
-    deal.status = status
-    deal.stage = status # Sync stage with status for Won/Lost
-    db.session.commit()
-    log_activity(
-        module="deal",
-        action="status_updated",
-        description=f"Deal '{deal.title}' status changed to '{status}'.",
-        related_id=deal.id
-    )
-
-    # --- AUTOMATION TRIGGER ---
-    run_automation(
-        module="deal",
-        trigger_event="deal_updated",
-        record=deal
-    )
-    return jsonify({'message': 'Deal closed successfully'}), 200
-
-@deal_bp.route('/api/deals/<int:deal_id>/close', methods=['POST'])
+@deal_bp.route('/api/deals/<int:deal_id>', methods=['DELETE'])
 @token_required
-def close_deal_with_outcome(current_user, deal_id):
+def delete_deal(current_user, deal_id):
     deal = get_deal_query(current_user).filter_by(id=deal_id).first()
+    if not deal:
+        return jsonify({'message': f'Deal with ID {deal_id} not found.'}), 404
+
+    db.session.delete(deal)
+    db.session.commit()
+    log_activity("deal", "deleted", f"Deal '{deal.title}' was deleted.", deal.id)
+    return jsonify({'message': 'Deal deleted successfully'}), 200
+
+@deal_bp.route('/api/deals/<int:deal_id>/status', methods=['PUT'])
+@token_required
+def update_deal_status(current_user, deal_id):
+    deal = get_deal_query(current_user).filter_by(id=deal_id, organization_id=current_user.organization_id).first()
     if not deal:
         return jsonify({'message': 'Deal not found'}), 404
 
     data = request.get_json()
-    outcome = data.get('outcome')
-    reason = data.get('reason')
+    new_status = data.get('status')
 
-    if outcome not in ['WON', 'LOST']:
-        return jsonify({'message': 'Outcome must be WON or LOST'}), 400
+    if new_status not in ['won', 'lost']:
+         return jsonify({'message': 'Invalid status. Must be "won" or "lost"'}), 400
 
-    deal.outcome = outcome
-    deal.closed_at = datetime.utcnow()
+    # The model uses 'stage', so we map 'status' to 'stage'
+    new_stage = new_status.capitalize()
 
-    if outcome == 'WON':
-        deal.status = 'Won' # Sync with legacy status
+    if new_stage == 'Won':
         deal.stage = 'Won'
-        deal.win_reason = reason
-        deal.loss_reason = None
-    else:
-        deal.status = 'Lost' # Sync with legacy status
+        deal.win_reason = data.get('win_reason')
+        deal.closed_at = datetime.utcnow()
+    elif new_stage == 'Lost':
         deal.stage = 'Lost'
-        deal.loss_reason = reason
-        deal.win_reason = None
-
+        deal.loss_reason = data.get('loss_reason')
+        deal.closed_at = datetime.utcnow()
+    
     db.session.commit()
+    log_activity("deal", "status_changed", f"Deal '{deal.title}' status changed to {new_stage}.", deal.id)
+    return jsonify({'message': f'Deal status updated to {new_stage}'}), 200
 
-    log_activity(
-        module="deal",
-        action="closed",
-        description=f"Deal '{deal.title}' closed as {outcome}.",
-        related_id=deal.id
-    )
-    # --- AUTOMATION TRIGGER ---
-    run_automation(
-        module="deal",
-        trigger_event="deal_updated",
-        record=deal
-    )
-    return jsonify({'message': f'Deal marked as {outcome}'}), 200
-
-@deal_bp.route('/api/deals/forecast', methods=['GET'])
+@deal_bp.route('/api/deals/analytics', methods=['GET'])
 @token_required
-def forecast_revenue(current_user):
-    # Forecast logic: Sum of amount for Open deals in the organization
-    total = db.session.query(
-        func.sum(Deal.amount)
-    ).filter(
-        Deal.organization_id == current_user.organization_id,
-        Deal.status == "Open"
-    ).scalar() or 0.0
+def get_deal_analytics(current_user):
+    # 1. Win / Loss / In-progress count
+    won = Deal.query.filter_by(stage="Won").count()
+    lost = Deal.query.filter_by(stage="Lost").count()
+    in_progress = Deal.query.filter(Deal.stage.notin_(["Won", "Lost"])).count()
+    
+    # Total Value
+    total_value = db.session.query(func.sum(Deal.value)).filter(Deal.stage.notin_(['Won', 'Lost'])).scalar() or 0
+    open_deals = in_progress
 
-    return jsonify({"forecast_revenue": total}), 200
+    # Static reasons for demo phase as requested
+    win_reasons = [
+        { "label": "Pricing Fit", "value": 35 },
+        { "label": "Product Match", "value": 25 }
+    ]
+    loss_reasons = [
+        { "label": "Budget Issues", "value": 30 },
+        { "label": "Competitor Chosen", "value": 22 }
+    ]
+    
+    return jsonify({
+        "summary": {
+            "total_value": int(total_value),
+            "open_deals": open_deals,
+            "won": won,
+            "lost": lost
+        },
+        "win_loss": {
+            "won": won,
+            "lost": lost,
+            "in_progress": in_progress
+        },
+        "win_reasons": win_reasons,
+        "loss_reasons": loss_reasons
+    })

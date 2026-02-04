@@ -15,24 +15,21 @@ class Lead(db.Model):
     owner = db.Column(db.String(50), nullable=False)
     description = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_deleted = db.Column(db.Boolean, default=False)
 
 class Deal(db.Model):
     __tablename__ = 'deals'
     id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(150), nullable=False)
-    amount = db.Column(db.Float, nullable=False)
-    stage = db.Column(db.String(50), default="Prospecting")
-    status = db.Column(db.String(20), default="Open")
-    expected_close_date = db.Column(db.Date)
-    lead_id = db.Column(db.Integer, db.ForeignKey('leads.id'))
-    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
+    lead_id = db.Column(db.Integer, nullable=True)
+    title = db.Column(db.String(100), nullable=False)
+    company = db.Column(db.String(100))
+    pipeline = db.Column(db.String(50), nullable=False)
+    stage = db.Column(db.String(50), nullable=False)
+    value = db.Column(db.Integer, default=0)
+    owner = db.Column(db.String(50))
+    close_date = db.Column(db.Date)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    outcome = db.Column(db.String(10))
-    win_reason = db.Column(db.String(100))
-    loss_reason = db.Column(db.String(100))
-    closed_at = db.Column(db.DateTime)
 
 class Activity(db.Model):
     __tablename__ = 'activities'

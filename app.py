@@ -10,7 +10,9 @@ from routes.organization_routes import organization_bp
 from routes.analytics_routes import analytics_bp
 from routes.pipeline_routes import pipeline_bp
 from routes.task_routes import task_bp
+from routes.report_routes import report_bp
 from config import Config
+from models.crm import Deal
 import models
 from flask_jwt_extended import get_jwt, verify_jwt_in_request
 from models.calendar_event import CalendarEvent
@@ -23,16 +25,12 @@ load_dotenv()
 app = Flask(__name__)
 app.config.from_object(Config)
 print(f"[OK] Database URI: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
-CORS(
-    app,
-    origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://192.168.1.26:5173",
-        "http://192.168.1.26:3000"
-    ],
-    supports_credentials=True
-)
+
+# Enable CORS for frontend (localhost:5173)
+CORS(app, resources={r"/*": {"origins": "http://localhost:5173"}},
+     supports_credentials=True,
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization"])
 
 @app.before_request
 def log_request_info():
@@ -85,6 +83,7 @@ app.register_blueprint(task_bp)
 app.register_blueprint(calendar_bp, url_prefix="/api")
 app.register_blueprint(activity_bp, url_prefix="/api")
 app.register_blueprint(automation_bp, url_prefix="/api")
+app.register_blueprint(report_bp)
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):
@@ -95,14 +94,6 @@ def handle_integrity_error(e):
 @app.errorhandler(405)
 def handle_method_not_allowed(e):
     return jsonify({"error": "Method not allowed", "message": "The method is not allowed for the requested URL."}), 405
-
-# --- Monkey Patch Deal Model (Since models/crm.py is not editable) ---
-from models.crm import Deal, Lead
-if not hasattr(Deal, 'pipeline_id'):
-    Deal.pipeline_id = db.Column(db.Integer)
-    Deal.stage_id = db.Column(db.Integer)
-
-# ---------------------------------------------------------------------
 
 with app.app_context():
     # db.drop_all() # Uncomment this ONLY if you need to reset the DB completely
@@ -168,7 +159,7 @@ with app.app_context():
                 pass
 
             cols_to_drop = [
-                "organization_id", "company_id", "mobile", 
+                "company_id", "mobile", 
                 "lead_source", "lead_status", "assigned_id", "owner_id",
                 "first_name", "last_name", "assigned_to"
             ]
@@ -190,7 +181,10 @@ with app.app_context():
                 ("score", "VARCHAR(20)"),
                 ("sla", "VARCHAR(20)"),
                 ("owner", "VARCHAR(50)"),
-                ("description", "TEXT")
+                ("description", "TEXT"),
+                ("updated_at", "DATETIME"),
+                ("is_deleted", "BOOLEAN DEFAULT 0"),
+                ("organization_id", "INTEGER")
             ]
             for col_name, col_type in lead_new_cols:
                 try:
@@ -204,55 +198,40 @@ with app.app_context():
                         print(f"[FAIL] Error adding {col_name}: {e}")
             connection.commit()
 
-            # 3. Fix Deals Table
+            # 3. Strict Schema Enforcement for Deals Table
             try:
-                connection.execute(text("SELECT title FROM deals LIMIT 1"))
-            except Exception:
-                print("[WARN] Column 'title' not found in deals. Applying migrations...")
-                deal_cols = [
-                    ("title", "VARCHAR(150)"),
-                    ("amount", "FLOAT DEFAULT 0"),
-                    ("stage", "VARCHAR(50) DEFAULT 'Prospecting'"),
-                    ("status", "VARCHAR(20) DEFAULT 'Open'"),
-                    ("expected_close_date", "DATE"),
-                    ("lead_id", "INTEGER"),
-                    ("owner_id", "INTEGER"),
-                    ("organization_id", "INTEGER"),
-                    ("created_at", "DATETIME"),
-                    ("updated_at", "DATETIME")
-                ]
-                for col_name, col_type in deal_cols:
+                with db.engine.connect() as connection:
+                    # Check if table exists and has the correct schema to avoid wiping data
                     try:
-                        connection.execute(text(f"ALTER TABLE deals ADD COLUMN {col_name} {col_type}"))
-                        print(f"[OK] Added column: {col_name} to deals")
+                        connection.execute(text("SELECT pipeline FROM deals LIMIT 1"))
                     except Exception:
-                        pass
-                connection.commit()
+                        # If fails (table missing or column missing), recreate it
+                        print("[WARN] Enforcing strict schema for 'deals' table...")
+                        connection.execute(text("DROP TABLE IF EXISTS deals"))
+                        connection.execute(text("""
+                            CREATE TABLE deals (
+                              id INTEGER PRIMARY KEY AUTOINCREMENT,
+                              lead_id INTEGER,
+                              title VARCHAR(100) NOT NULL,
+                              company VARCHAR(100),
+                              pipeline VARCHAR(50) NOT NULL,
+                              stage VARCHAR(50) NOT NULL,
+                              value INTEGER DEFAULT 0,
+                              owner VARCHAR(50),
+                              close_date DATE,
+                              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                              organization_id INTEGER,
+                              win_reason VARCHAR(255),
+                              loss_reason VARCHAR(255),
+                              closed_at DATETIME
+                            )
+                        """))
+                        connection.commit()
+                        print("[OK] Deals table recreated with strict schema.")
+            except Exception as e:
+                print(f"[FAIL] Deals Migration Error: {e}")
 
-            # 2.2 Fix Deals Table (Pipelines)
-            try:
-                connection.execute(text("SELECT pipeline_id FROM deals LIMIT 1"))
-            except Exception:
-                print("[WARN] Column 'pipeline_id' not found in deals. Adding column...")
-                try:
-                    connection.execute(text("ALTER TABLE deals ADD COLUMN pipeline_id INTEGER"))
-                    print("[OK] Added column: pipeline_id to deals")
-                    connection.commit()
-                except Exception as e:
-                    print(f"[FAIL] Error adding pipeline_id column: {e}")
-
-            try:
-                connection.execute(text("SELECT stage_id FROM deals LIMIT 1"))
-            except Exception:
-                print("[WARN] Column 'stage_id' not found in deals. Adding column...")
-                try:
-                    connection.execute(text("ALTER TABLE deals ADD COLUMN stage_id INTEGER"))
-                    print("[OK] Added column: stage_id to deals")
-                    connection.commit()
-                except Exception as e:
-                    print(f"[FAIL] Error adding stage_id column: {e}")
-
-            # 2.1 Fix Deals Table (Win/Loss Analytics)
+            # 4. Deprecated Analytics Columns (Cleanup)
             try:
                 connection.execute(text("SELECT outcome FROM deals LIMIT 1"))
             except Exception:
@@ -290,6 +269,53 @@ with app.app_context():
                     except Exception:
                         pass
                 connection.commit()
+
+            # 5.1 Strict Schema Enforcement for Contacts (Re-creation)
+            try:
+                with db.engine.connect() as connection:
+                    # Check if migration is needed by looking for an old, removed column
+                    try:
+                        connection.execute(text("SELECT organization_id FROM contacts LIMIT 1"))
+                        needs_migration = True
+                    except Exception:
+                        needs_migration = False
+
+                    if needs_migration:
+                        print("[WARN] Old 'contacts' schema detected. Applying safe migration...")
+                        # Step 1: Create new clean table
+                        connection.execute(text("""
+                            CREATE TABLE contacts_new (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                name VARCHAR(100) NOT NULL,
+                                company VARCHAR(120),
+                                email VARCHAR(120) NOT NULL,
+                                phone VARCHAR(20),
+                                owner VARCHAR(50),
+                                last_contact VARCHAR(50),
+                                status VARCHAR(20)
+                            )
+                        """))
+                        print("[OK] Created temporary table 'contacts_new'.")
+
+                        # Step 2: Copy data (only matching columns)
+                        connection.execute(text("""
+                            INSERT INTO contacts_new (id, name, company, email, phone, owner, last_contact, status)
+                            SELECT id, name, company, email, phone, owner, last_contact, status
+                            FROM contacts
+                        """))
+                        print("[OK] Copied data to 'contacts_new'.")
+
+                        # Step 3: Drop old table
+                        connection.execute(text("DROP TABLE contacts"))
+                        print("[OK] Dropped old 'contacts' table.")
+
+                        # Step 4: Rename new table
+                        connection.execute(text("ALTER TABLE contacts_new RENAME TO contacts"))
+                        print("[OK] Renamed 'contacts_new' to 'contacts'.")
+                        connection.commit()
+                        print("[OK] Contacts table migration complete.")
+            except Exception as e:
+                print(f"[FAIL] Contacts table migration failed: {e}")
             
             # 6. Fix Organizations Table (Setup Flow Requirements)
             try:
@@ -394,7 +420,9 @@ with app.app_context():
                         MODIFY sla VARCHAR(20) NOT NULL,
                         MODIFY owner VARCHAR(50) NOT NULL,
                         MODIFY description TEXT NOT NULL,
-                        MODIFY created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        MODIFY created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        MODIFY updated_at DATETIME,
+                        MODIFY is_deleted BOOLEAN DEFAULT 0
                     """))
                     print("[OK] Applied strict NOT NULL constraints to leads table")
                     connection.commit()
@@ -437,6 +465,57 @@ with app.app_context():
                 connection.commit()
     except Exception as e:
         print(f"Task Migration Error: {e}")
+
+    # --- Auto-Migration for Tasks Table (Calendar Support) ---
+    try:
+        with db.engine.connect() as connection:
+            # Check for 'task_date'
+            try:
+                connection.execute(text("SELECT task_date FROM tasks LIMIT 1"))
+            except Exception:
+                print("[WARN] Column 'task_date' not found in tasks. Adding...")
+                try:
+                    connection.execute(text("ALTER TABLE tasks ADD COLUMN task_date DATE"))
+                    print("[OK] Added column: task_date")
+                except Exception as e:
+                    print(f"[FAIL] Error adding task_date: {e}")
+
+            # Check for 'task_time'
+            try:
+                connection.execute(text("SELECT task_time FROM tasks LIMIT 1"))
+            except Exception:
+                print("[WARN] Column 'task_time' not found in tasks. Adding...")
+                try:
+                    connection.execute(text("ALTER TABLE tasks ADD COLUMN task_time VARCHAR(10)"))
+                    print("[OK] Added column: task_time")
+                except Exception as e:
+                    print(f"[FAIL] Error adding task_time: {e}")
+            
+            # Check for 'source_type' (For Calendar Sync)
+            try:
+                connection.execute(text("SELECT source_type FROM tasks LIMIT 1"))
+            except Exception:
+                print("[WARN] Column 'source_type' not found in tasks. Adding...")
+                try:
+                    connection.execute(text("ALTER TABLE tasks ADD COLUMN source_type VARCHAR(50)"))
+                    print("[OK] Added column: source_type")
+                except Exception as e:
+                    print(f"[FAIL] Error adding source_type: {e}")
+
+            # Check for 'source_id' (For Calendar Sync)
+            try:
+                connection.execute(text("SELECT source_id FROM tasks LIMIT 1"))
+            except Exception:
+                print("[WARN] Column 'source_id' not found in tasks. Adding...")
+                try:
+                    connection.execute(text("ALTER TABLE tasks ADD COLUMN source_id INTEGER"))
+                    print("[OK] Added column: source_id")
+                except Exception as e:
+                    print(f"[FAIL] Error adding source_id: {e}")
+
+            connection.commit()
+    except Exception as e:
+        print(f"Task Calendar Migration Error: {e}")
 
     # --- Auto-Migration for Password Resets Table ---
     try:

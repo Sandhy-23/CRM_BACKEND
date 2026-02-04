@@ -10,8 +10,8 @@ analytics_bp = Blueprint('analytics', __name__)
 @token_required
 def win_loss_summary(current_user):
     # Filter by organization
-    wins = Deal.query.filter_by(organization_id=current_user.organization_id, outcome="WON").count()
-    losses = Deal.query.filter_by(organization_id=current_user.organization_id, outcome="LOST").count()
+    wins = Deal.query.filter(Deal.stage == 'Won').count()
+    losses = Deal.query.filter(Deal.stage == 'Lost').count()
     
     return jsonify({
         "wins": wins,
@@ -21,25 +21,17 @@ def win_loss_summary(current_user):
 @analytics_bp.route('/api/analytics/win-reasons', methods=['GET'])
 @token_required
 def win_reasons(current_user):
-    rows = db.session.query(
-        Deal.win_reason,
-        func.count(Deal.id)
-    ).filter(
-        Deal.organization_id == current_user.organization_id,
-        Deal.outcome == "WON"
-    ).group_by(Deal.win_reason).all()
-
-    return jsonify([{"reason": r[0], "count": r[1]} for r in rows]), 200
+    results = db.session.query(Deal.win_reason, func.count(Deal.id))\
+        .filter(Deal.stage == 'Won', Deal.win_reason.isnot(None), Deal.win_reason != "")\
+        .group_by(Deal.win_reason).all()
+    
+    return jsonify([{"label": r[0], "value": r[1]} for r in results]), 200
 
 @analytics_bp.route('/api/analytics/loss-reasons', methods=['GET'])
 @token_required
 def loss_reasons(current_user):
-    rows = db.session.query(
-        Deal.loss_reason,
-        func.count(Deal.id)
-    ).filter(
-        Deal.organization_id == current_user.organization_id,
-        Deal.outcome == "LOST"
-    ).group_by(Deal.loss_reason).all()
-
-    return jsonify([{"reason": r[0], "count": r[1]} for r in rows]), 200
+    results = db.session.query(Deal.loss_reason, func.count(Deal.id))\
+        .filter(Deal.stage == 'Lost', Deal.loss_reason.isnot(None), Deal.loss_reason != "")\
+        .group_by(Deal.loss_reason).all()
+    
+    return jsonify([{"label": r[0], "value": r[1]} for r in results]), 200

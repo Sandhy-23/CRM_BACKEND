@@ -4,10 +4,11 @@ from models.crm import Lead, Deal, Activity
 from models.contact import Contact
 from models.user import User
 from routes.auth_routes import token_required
-from datetime import datetime
-from sqlalchemy import func, or_
+from datetime import datetime, timedelta
+from sqlalchemy import func, or_, text
 from models.activity_logger import log_activity
 from services.automation_engine import run_automation
+from models.task import Task
 
 lead_bp = Blueprint('leads', __name__)
 
@@ -22,10 +23,28 @@ class Account(db.Model):
     organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+def serialize_lead(lead):
+    """Helper to serialize a Lead object to a dictionary."""
+    return {
+        "id": lead.id,
+        "name": lead.name,
+        "email": lead.email,
+        "phone": lead.phone,
+        "company": lead.company,
+        "source": lead.source,
+        "status": lead.status,
+        "score": getattr(lead, 'score', None),
+        "sla": getattr(lead, 'sla', None),
+        "owner": getattr(lead, 'owner', None),
+        "description": getattr(lead, 'description', None),
+        "created_at": lead.created_at.isoformat() if lead.created_at else None,
+        "updated_at": lead.updated_at.isoformat() if hasattr(lead, 'updated_at') and lead.updated_at else None
+    }
+
 def get_lead_query(current_user):
     """Enforce Zoho-style Role Based Access Control"""
-    # Simplified: Return all leads since company_id/owner_id are removed from Lead model
-    query = Lead.query
+    # Simplified: Return all non-deleted leads.
+    query = Lead.query.filter(getattr(Lead, 'is_deleted', False) == False)
     return query
 
 @lead_bp.route('/api/leads', methods=['POST'])
@@ -34,62 +53,95 @@ def create_lead(current_user):
     data = request.get_json()
     if not data:
         return jsonify({'message': 'Invalid JSON data'}), 400
+
+    # 1. Validate Input (Mandatory: Name, Phone)
+    name = data.get('name')
+    phone = data.get('phone')
     
-    # Strict Validation: Required Fields
-    required_fields = [
-        "name", "email", "company",
-        "source", "status", "score",
-        "sla", "owner", "description"
-    ]
+    if not name or not phone:
+        return jsonify({'message': 'Name and Phone are required'}), 400
 
-    missing_fields = []
-    for field in required_fields:
-        if field not in data or not str(data[field]).strip():
-            missing_fields.append(field)
+    # 2. Duplicate Check (Phone + Org)
+    # Check if lead exists in this organization
+    # Using raw SQL to avoid AttributeError if Lead model is missing organization_id
+    sql_check = text("SELECT id FROM leads WHERE phone = :phone AND organization_id = :org_id")
+    result = db.session.execute(sql_check, {'phone': phone, 'org_id': current_user.organization_id}).fetchone()
 
-    if missing_fields:
-        print(f"[FAIL] Validation Error: Missing fields {missing_fields}")
-        return jsonify({
-            "error": "Missing required fields",
-            "fields": missing_fields
-        }), 400
+    if result:
+        lead_id = result[0]
+        # Update existing lead
+        sql_update = text("""
+            UPDATE leads 
+            SET name = :name, email = :email, company = :company, source = :source, updated_at = :updated_at 
+            WHERE id = :id
+        """)
+        
+        db.session.execute(sql_update, {
+            'name': name,
+            'email': data.get('email'),
+            'company': data.get('company'),
+            'source': data.get('source'),
+            'updated_at': datetime.utcnow(),
+            'id': lead_id
+        })
+        
+        db.session.commit()
+        
+        log_activity("lead", "updated", f"Lead '{name}' updated via duplicate check.", lead_id)
+        return jsonify({'message': 'Lead updated successfully', 'lead_id': lead_id}), 200
 
-    # Unique Email Check
-    if data.get('email') and Lead.query.filter_by(email=data['email']).first():
-        return jsonify({'message': 'Lead with this email already exists'}), 409
-
-    new_lead = Lead(
-        name=data["name"],
-        company=data["company"],
-        email=data["email"],
-        phone=data.get('phone'), # Optional
-        source=data["source"],
-        status=data["status"],
-        score=data["score"],
-        sla=data["sla"],
-        owner=data["owner"],
-        description=data["description"],
-        created_at=datetime.utcnow()
-    )
+    # 3. Create New Lead
+    sql_insert = text("""
+        INSERT INTO leads (name, phone, email, company, source, status, organization_id, owner, created_at, updated_at)
+        VALUES (:name, :phone, :email, :company, :source, 'New', :org_id, :owner, :created_at, :updated_at)
+    """)
     
-    db.session.add(new_lead)
+    created_at = datetime.utcnow()
+    result = db.session.execute(sql_insert, {
+        'name': name,
+        'phone': phone,
+        'email': data.get('email'),
+        'company': data.get('company'),
+        'source': data.get('source', 'Manual'),
+        'org_id': current_user.organization_id,
+        'owner': current_user.name,
+        'created_at': created_at,
+        'updated_at': created_at
+    })
+    
     db.session.commit()
+    lead_id = result.lastrowid
+
+    # 4. Auto Create Task (Follow up)
+    try:
+        task = Task(
+            title='Follow up with new lead',
+            description=f"Follow up with {name}",
+            task_date=datetime.utcnow().date() + timedelta(days=1),
+            task_time="10:00:00",
+            status='Pending',
+            priority='High',
+            lead_id=lead_id,
+            company_id=current_user.organization_id,
+            assigned_to=current_user.id,
+            created_by=current_user.id
+        )
+        db.session.add(task)
+        db.session.commit()
+    except Exception as e:
+        print(f"[WARN] Error creating auto-task for lead: {e}")
     
-    log_activity(
-        module="lead",
-        action="created",
-        description=f"Lead '{new_lead.name}' created.",
-        related_id=new_lead.id
-    )
+    log_activity("lead", "created", f"Lead '{name}' created.", lead_id)
 
-    # --- AUTOMATION TRIGGER ---
-    run_automation(
-        module="lead",
-        trigger_event="lead_created",
-        record=new_lead
-    )
+    # Trigger automation if needed (kept from original)
+    try:
+        new_lead = Lead.query.get(lead_id)
+        if new_lead:
+            run_automation(module="lead", trigger_event="lead_created", record=new_lead)
+    except:
+        pass
 
-    return jsonify({'message': 'Lead stored successfully', 'lead_id': new_lead.id}), 201
+    return jsonify({'message': 'Lead saved successfully', 'lead_id': lead_id}), 201
 
 @lead_bp.route('/api/leads', methods=['GET'])
 @token_required
@@ -99,20 +151,8 @@ def get_leads(current_user):
     
     # Manual serialization to ensure all fields are returned
     result = []
-    for l in leads:
-        result.append({
-            "id": l.id,
-            "name": l.name,
-            "company": l.company,
-            "email": l.email,
-            "phone": l.phone,
-            "status": l.status,
-            "source": l.source,
-            "score": getattr(l, 'score', None),
-            "sla": getattr(l, 'sla', None),
-            "owner": getattr(l, 'owner', None),
-            "created_at": l.created_at.isoformat() if l.created_at else None
-        })
+    for lead in leads:
+        result.append(serialize_lead(lead))
     return jsonify(result), 200
 
 @lead_bp.route('/api/leads/<int:lead_id>', methods=['GET'])
@@ -125,16 +165,7 @@ def get_lead_profile(current_user, lead_id):
     activities = [] # Placeholder, main timeline is via /api/activity-timeline
     
     return jsonify({
-        "lead": {
-            "id": lead.id,
-            "name": lead.name,
-            "company": lead.company,
-            "email": lead.email,
-            "phone": lead.phone,
-            "source": lead.source,
-            "status": lead.status,
-            "owner": lead.owner
-        },
+        "lead": serialize_lead(lead),
         "activities": activities
     }), 200
 
@@ -147,9 +178,13 @@ def update_lead(current_user, lead_id):
 
     data = request.get_json()
     for key, value in data.items():
-        if hasattr(lead, key):
+        # Only update allowed fields
+        if hasattr(lead, key) and key not in ['id', 'created_at']:
             setattr(lead, key, value)
-            
+    
+    # Manually update the 'updated_at' timestamp
+    lead.updated_at = datetime.utcnow()
+
     db.session.commit()
     log_activity(
         module="lead",
@@ -157,7 +192,27 @@ def update_lead(current_user, lead_id):
         description=f"Lead '{lead.name}' updated.",
         related_id=lead.id
     )
-    return jsonify({'message': 'Lead updated successfully'}), 200
+    return jsonify({'message': 'Lead updated successfully', 'lead': serialize_lead(lead)}), 200
+
+@lead_bp.route('/api/leads/<int:lead_id>', methods=['DELETE'])
+@token_required
+def delete_lead(current_user, lead_id):
+    """Performs a soft delete on a lead."""
+    lead = get_lead_query(current_user).filter_by(id=lead_id).first()
+    if not lead:
+        return jsonify({'message': 'Lead not found or already deleted'}), 404
+
+    lead.is_deleted = True
+    lead.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    log_activity(
+        module="lead",
+        action="deleted",
+        description=f"Lead '{lead.name}' soft deleted.",
+        related_id=lead.id
+    )
+    return jsonify({'message': 'Lead deleted successfully'}), 200
 
 @lead_bp.route('/api/leads/<int:lead_id>/convert', methods=['POST'])
 @token_required
@@ -172,12 +227,14 @@ def convert_lead(current_user, lead_id):
 
     # Create Deal from Lead
     new_deal = Deal(
-        title=lead.name,
-        amount=0, # Default
-        stage="New",
         lead_id=lead.id,
-        owner_id=current_user.id, # Assign deal to current user
-        organization_id=current_user.organization_id
+        pipeline="Deals", # Default pipeline (Capitalized)
+        title=lead.name,
+        company=lead.company,
+        stage="Proposal",
+        value=0,
+        owner=lead.owner,
+        close_date=None
     )
 
     # Update Lead status

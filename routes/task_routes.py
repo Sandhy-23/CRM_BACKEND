@@ -4,7 +4,9 @@ from models.task import Task
 from models.user import User
 from routes.auth_routes import token_required
 from models.activity_logger import log_activity
-from datetime import datetime
+from datetime import datetime, timedelta
+from sqlalchemy import text, event
+from models.calendar_event import CalendarEvent
 
 task_bp = Blueprint('tasks', __name__)
 
@@ -115,3 +117,128 @@ def complete_task(current_user, task_id):
         related_id=task.id
     )
     return jsonify({'message': 'Task marked as completed'}), 200
+
+@task_bp.route('/api/calendar/task', methods=['POST'])
+@token_required
+def create_calendar_task(current_user):
+    """
+    Creates a Calendar Event AND a Task from the Calendar UI.
+    Handles the specific payload sent by the frontend calendar widget.
+    """
+    # 1. Log the request body (Debug Step)
+    data = request.get_json()
+    print(f"[DEBUG] /api/calendar/task Body: {data}")
+
+    title = data.get('title')
+    start_datetime_str = data.get('start_datetime')
+    end_datetime_str = data.get('end_datetime')
+    description = data.get('description')
+    event_type = data.get('event_type', 'Task')
+    
+    # 2. Validate required fields
+    if not title or not start_datetime_str:
+        return jsonify({'message': 'Title and Start Datetime are required'}), 400
+
+    try:
+        # 3. Parse Dates
+        start_datetime = datetime.fromisoformat(start_datetime_str.replace('Z', '+00:00'))
+        if end_datetime_str:
+            end_datetime = datetime.fromisoformat(end_datetime_str.replace('Z', '+00:00'))
+        else:
+            end_datetime = start_datetime + timedelta(minutes=30)
+
+        # 4. Create Calendar Event
+        new_event = CalendarEvent(
+            title=title,
+            description=description,
+            event_type=event_type,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+            created_by=current_user.id,
+            assigned_to=current_user.id, # Force assign to self
+            company_id=current_user.organization_id
+        )
+        db.session.add(new_event)
+        db.session.flush() # Get ID
+        
+        # 5. Auto-create Task
+        task_date = start_datetime.date()
+        task_time = start_datetime.time().strftime('%H:%M:%S')
+
+        new_task = Task(
+            title=title,
+            description=description or f"Event: {title}",
+            task_date=task_date,
+            task_time=task_time,
+            status='Pending',
+            company_id=current_user.organization_id,
+            assigned_to=current_user.id,
+            created_by=current_user.id,
+            due_date=task_date,
+            source_type='calendar',
+            source_id=new_event.id
+        )
+        db.session.add(new_task)
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Event and task created successfully',
+            'event': new_event.to_dict(),
+            'task': new_task.to_dict()
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        print(f"[FAIL] Calendar Task Create Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# --- EVENT LISTENER: Auto-create Task from Calendar Event ---
+# def create_task_from_calendar_event(mapper, connection, target):
+#     """
+#     Automatically creates a Task when a CalendarEvent is inserted.
+#     Extracts date/time and links it via source_type/source_id.
+#     """
+#     if not target.start_datetime:
+#         return
+# 
+#     try:
+#         # Extract Date and Time from start_datetime
+#         # Handle both string (ISO format) and datetime object
+#         if isinstance(target.start_datetime, str):
+#             dt = datetime.fromisoformat(target.start_datetime.replace('Z', '+00:00'))
+#         else:
+#             dt = target.start_datetime
+#             
+#         task_date = dt.date()
+#         task_time = dt.time().strftime('%H:%M:%S')
+# 
+#         # Insert Task directly using SQL to avoid session conflicts during flush
+#         sql = text("""
+#             INSERT INTO tasks (
+#                 title, description, task_date, task_time, 
+#                 status, company_id, assigned_to, created_by, 
+#                 due_date, created_at, source_type, source_id
+#             ) VALUES (
+#                 :title, :description, :task_date, :task_time, 
+#                 'Pending', :company_id, :assigned_to, :created_by, 
+#                 :due_date, :created_at, 'calendar', :source_id
+#             )
+#         """)
+#         
+#         connection.execute(sql, {
+#             'title': target.title,
+#             'description': target.description or f"Event: {target.title}",
+#             'task_date': task_date,
+#             'task_time': task_time,
+#             'company_id': target.company_id,
+#             'assigned_to': target.assigned_to,
+#             'created_by': target.created_by,
+#             'due_date': task_date,
+#             'created_at': datetime.utcnow(),
+#             'source_id': target.id
+#         })
+#         print(f"[INFO] Auto-created task for Event ID {target.id}")
+#     except Exception as e:
+#         print(f"[FAIL] Error auto-creating task from event: {e}")
+# 
+# # Register the listener
+# event.listen(CalendarEvent, 'after_insert', create_task_from_calendar_event)
