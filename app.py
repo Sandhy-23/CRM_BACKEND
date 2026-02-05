@@ -11,6 +11,7 @@ from routes.analytics_routes import analytics_bp
 from routes.pipeline_routes import pipeline_bp
 from routes.task_routes import task_bp
 from routes.report_routes import report_bp
+from routes.team_routes import team_bp
 from config import Config
 from models.crm import Deal
 import models
@@ -18,6 +19,8 @@ from flask_jwt_extended import get_jwt, verify_jwt_in_request
 from models.calendar_event import CalendarEvent
 from models.reminder import Reminder
 from dotenv import load_dotenv
+from models.team import Team, LocationTeamMapping
+
 import models.automation # Register Automation Models
 load_dotenv()
 
@@ -84,6 +87,7 @@ app.register_blueprint(calendar_bp, url_prefix="/api")
 app.register_blueprint(activity_bp, url_prefix="/api")
 app.register_blueprint(automation_bp, url_prefix="/api")
 app.register_blueprint(report_bp)
+app.register_blueprint(team_bp)
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):
@@ -131,6 +135,18 @@ with app.app_context():
                     except Exception:
                         pass
                 connection.commit()
+
+            # Check if team_id column exists
+            try:
+                connection.execute(text("SELECT team_id FROM users LIMIT 1"))
+            except Exception:
+                print("[WARN] Column 'team_id' not found. Applying migration...")
+                try:
+                    connection.execute(text("ALTER TABLE users ADD COLUMN team_id INTEGER"))
+                    print("[OK] Added column: team_id")
+                    connection.commit()
+                except Exception as e:
+                    print(f"[FAIL] Error adding team_id: {e}")
 
                 print("[OK] User table migration complete.")
     except Exception as e:
@@ -184,7 +200,12 @@ with app.app_context():
                 ("description", "TEXT"),
                 ("updated_at", "DATETIME"),
                 ("is_deleted", "BOOLEAN DEFAULT 0"),
-                ("organization_id", "INTEGER")
+                ("organization_id", "INTEGER"),
+                ("city", "VARCHAR(100)"),
+                ("state", "VARCHAR(100)"),
+                ("country", "VARCHAR(100)"),
+                ("assigned_team_id", "INTEGER"),
+                ("assigned_user_id", "INTEGER")
             ]
             for col_name, col_type in lead_new_cols:
                 try:
@@ -597,6 +618,26 @@ with app.app_context():
         db.session.add_all([basic, pro_exec, executive])
         db.session.commit()
         print("Seeding complete.")
+        
+    # --- Seeding Teams (For Auto-Assignment Testing) ---
+    if not Team.query.first():
+        print("Seeding Teams and Location Mappings...")
+        # 1. Create Team
+        team = Team(name="Hyderabad Sales", city="Hyderabad", country="India")
+        db.session.add(team)
+        db.session.commit()
+        
+        # 2. Create Mapping
+        mapping = LocationTeamMapping(city="Hyderabad", country="India", team_id=team.id)
+        db.session.add(mapping)
+        db.session.commit()
+        
+        # 3. Assign First Agent to Team (if exists)
+        agent = models.User.query.filter_by(role='agent').first()
+        if agent:
+            agent.team_id = team.id
+            db.session.commit()
+        print("✅ Teams seeded for testing.")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)

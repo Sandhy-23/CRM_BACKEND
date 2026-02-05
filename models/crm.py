@@ -4,46 +4,57 @@ from datetime import datetime
 class Lead(db.Model):
     __tablename__ = 'leads'
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    company = db.Column(db.String(120), nullable=False)
-    email = db.Column(db.String(120), nullable=False)
+    name = db.Column(db.String(100))
+    email = db.Column(db.String(120))
     phone = db.Column(db.String(20))
-    source = db.Column(db.String(50), nullable=False)
-    status = db.Column(db.String(50), nullable=False)
-    score = db.Column(db.String(20), nullable=False)
-    sla = db.Column(db.String(20), nullable=False)
-    owner = db.Column(db.String(50), nullable=False)
-    description = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    is_deleted = db.Column(db.Boolean, default=False)
+    company = db.Column(db.String(100))
+    city = db.Column(db.String(100))
+    state = db.Column(db.String(100))
+    country = db.Column(db.String(100))
+    source = db.Column(db.String(50)) # website / orbit / whatsapp
+    assigned_team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
+    assigned_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    status = db.Column(db.String(50), default='new') # new, unassigned, assigned
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    assigned_team = db.relationship('Team')
+    assigned_user = db.relationship('User')
+
+# Keeping other models to avoid breaking imports
 class Deal(db.Model):
     __tablename__ = 'deals'
     id = db.Column(db.Integer, primary_key=True)
-    lead_id = db.Column(db.Integer, nullable=True)
-    title = db.Column(db.String(100), nullable=False)
+    lead_id = db.Column(db.Integer, db.ForeignKey('leads.id'))
+    pipeline = db.Column(db.String(50))
+    title = db.Column(db.String(100))
     company = db.Column(db.String(100))
-    pipeline = db.Column(db.String(50), nullable=False)
-    stage = db.Column(db.String(50), nullable=False)
-    value = db.Column(db.Integer, default=0)
-    owner = db.Column(db.String(50))
+    stage = db.Column(db.String(50))
+    value = db.Column(db.Integer)
+    owner = db.Column(db.String(100))
     close_date = db.Column(db.Date)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class Activity(db.Model):
     __tablename__ = 'activities'
     id = db.Column(db.Integer, primary_key=True)
-    description = db.Column(db.String(255))
+    description = db.Column(db.Text)
     status = db.Column(db.String(50))
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
+    user_id = db.Column(db.Integer)
+    organization_id = db.Column(db.Integer)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class Ticket(db.Model):
-    __tablename__ = 'tickets'
+    __tablename__ = "tickets"
+
     id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(255))
+    description = db.Column(db.Text)
+    status = db.Column(db.String(50), default="open")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class Campaign(db.Model):
-    __tablename__ = 'campaigns'
+    __tablename__ = "campaigns"
+
     id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)

@@ -320,7 +320,8 @@ def create_employee(current_user):
         date_of_joining=doj,
         is_approved=True, # Admin created users are auto-approved
         is_verified=is_verified,
-        organization_id=org_id
+        organization_id=org_id,
+        team_id=data.get("team_id")
     )
 
     try:

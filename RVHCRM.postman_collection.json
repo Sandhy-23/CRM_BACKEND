@@ -858,20 +858,110 @@
 			"name": "5. Leads (CRM)",
 			"item": [
 				{
-					"name": "Create Lead",
+					"name": "1. Create Lead (Main Entry)",
 					"request": {
 						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "", "type": "string" } ] },
 						"method": "POST",
 						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"name\": \"Test Lead\",\n  \"email\": \"test@gmail.com\",\n  \"phone\": \"9000000001\",\n  \"company\": \"Test Company\",\n  \"source\": \"postman\"\n}"
+							"raw": "{\n  \"name\": \"Test Lead\",\n  \"email\": \"testlead@gmail.com\",\n  \"phone\": \"9999999999\",\n  \"company\": \"Test Company\",\n  \"source\": \"website\"\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/leads",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
+							"raw": "{{base_url}}/api/leads",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "leads" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "2. Create Lead (No Team - Admin Fallback)",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "", "type": "string" } ] },
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Unknown City Lead\",\n  \"phone\": \"8888888888\",\n  \"source\": \"website\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/leads",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "leads" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "3. Get My Assigned Leads (Agent)",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/leads/my",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "leads", "my" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "4. Get Unassigned Leads (Admin)",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/leads/unassigned",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "leads", "unassigned" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "5. Manually Assign Lead",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "PUT",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"team_id\": 1,\n  \"user_id\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/leads/1/assign",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "leads", "1", "assign" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Leads (Super Admin)",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/leads/all",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "leads", "all" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Leads (Legacy)",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/leads",
+							"host": [ "{{base_url}}" ],
 							"path": [ "api", "leads" ]
 						}
 					},
@@ -2056,42 +2146,6 @@
 						}
 					},
 					"response": []
-				},
-				{
-					"name": "Assign Lead",
-					"request": {
-						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
-						"method": "PUT",
-						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"assigned_to\": 2\n}"
-						},
-						"url": {
-							"raw": "{{base_url}}/api/leads/1/assign",
-							"host": [ "{{base_url}}" ],
-							"path": [ "api", "leads", "1", "assign" ]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Update Lead Status",
-					"request": {
-						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
-						"method": "PUT",
-						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"status\": \"Qualified\"\n}"
-						},
-						"url": {
-							"raw": "{{base_url}}/api/leads/1/status",
-							"host": [ "{{base_url}}" ],
-							"path": [ "api", "leads", "1", "status" ]
-						}
-					},
-					"response": []
 				}
 			]
 		},
@@ -2226,6 +2280,61 @@
 				}
 			],
 			"description": "APIs for bulk data import and export."
+		},
+		{
+			"name": "13. Teams & Locations",
+			"item": [
+				{
+					"name": "Create Team",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Hyderabad Sales\",\n  \"city\": \"Hyderabad\",\n  \"country\": \"India\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/teams",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "teams" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Teams",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/teams",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "teams" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Location Mapping",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"city\": \"Hyderabad\",\n  \"country\": \"India\",\n  \"team_id\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/location-mapping",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "location-mapping" ]
+						}
+					},
+					"response": []
+				}
+			]
 		}
 	],
 	"variable": [

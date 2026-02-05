@@ -9,13 +9,26 @@ from models.contact import Contact
 from models.crm import Lead, Deal
 from models.note_file import Note
 from models.user import User
+from datetime import datetime
 
 # Import existing role-based query helpers
-from routes.lead_routes import get_lead_query, Account
-from routes.deal_routes import get_deal_query
+# The following imports are removed because 'get_lead_query' and 'Account' are no longer in lead_routes.py
+# from routes.lead_routes import get_lead_query, Account
+from routes.deal_routes import get_deal_query # Assuming this is still valid
 from models.activity_logger import log_activity
 
 import_export_bp = Blueprint('import_export', __name__)
+
+# --- Helper: Account Model (Local Definition to fix import error) ---
+class Account(db.Model):
+    __tablename__ = 'accounts'
+    id = db.Column(db.Integer, primary_key=True)
+    account_name = db.Column(db.String(100), nullable=False)
+    phone = db.Column(db.String(20))
+    website = db.Column(db.String(100))
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 # --- IMPORT LOGIC ---
 
@@ -102,17 +115,20 @@ def process_lead_import(df, current_user):
             continue
 
         try:
+            # Updated to match the new Lead model.
+            # Fields like score, sla, owner, description are removed.
+            # The system now auto-assigns users and teams upon API creation, but not for imports.
             new_lead = Lead(
                 name=name,
                 company=company,
                 email=email if email else None,
                 phone=str(row.get('phone', '')).strip(),
                 source=str(row.get('source', 'Import')).strip(),
-                status=str(row.get('status', 'New')).strip(),
-                score=str(row.get('score', 'N/A')).strip(),
-                sla=str(row.get('sla', 'N/A')).strip(),
-                owner=str(row.get('owner', 'Unassigned')).strip(),
-                description=str(row.get('description', 'Imported lead.')).strip()
+                status=str(row.get('status', 'new')).strip(), # Default status is 'new'
+                # Location fields can be provided in the import file
+                city=str(row.get('city', '')).strip() or None,
+                state=str(row.get('state', '')).strip() or None,
+                country=str(row.get('country', '')).strip() or None
             )
             db.session.add(new_lead)
             if email: existing_emails.add(email)
@@ -181,17 +197,25 @@ def export_data(current_user, module):
             df = pd.DataFrame(data)
     
     elif module == 'leads':
-        records = get_lead_query(current_user).filter(Lead.status != 'Converted').all()
+        # Replaced get_lead_query with a simple query.
+        query = Lead.query
+        # Simple RBAC for export: agents see their own leads, admins see all.
+        if current_user.role not in ['SUPER_ADMIN', 'admin']:
+             query = query.filter_by(assigned_user_id=current_user.id)
+
+        records = query.filter(Lead.status != 'Converted').all()
         if records:
+            # Updated data dictionary to match the new Lead model schema
             data = [{
                 "id": l.id, "name": l.name,
                 "company": l.company, "email": l.email, "phone": l.phone,
-                "status": l.status, "source": l.source, "owner": l.owner,
-                "score": getattr(l, 'score', None),
-                "sla": getattr(l, 'sla', None),
-                "description": getattr(l, 'description', None),
-                "created_at": l.created_at.isoformat() if l.created_at else None,
-                "updated_at": l.updated_at.isoformat() if hasattr(l, 'updated_at') and l.updated_at else None
+                "status": l.status, "source": l.source,
+                "city": l.city,
+                "state": l.state,
+                "country": l.country,
+                "assigned_team_id": l.assigned_team_id,
+                "assigned_user_id": l.assigned_user_id,
+                "created_at": l.created_at.isoformat() if l.created_at else None
             } for l in records]
             df = pd.DataFrame(data)
 
