@@ -204,6 +204,7 @@ with app.app_context():
                 ("city", "VARCHAR(100)"),
                 ("state", "VARCHAR(100)"),
                 ("country", "VARCHAR(100)"),
+                ("ip_address", "VARCHAR(50)"),
                 ("assigned_team_id", "INTEGER"),
                 ("assigned_user_id", "INTEGER")
             ]
@@ -592,6 +593,76 @@ with app.app_context():
                 print("[OK] Notes table migration complete.")
     except Exception as e:
         print(f"Notes Migration Error: {e}")
+
+    # --- Auto-Migration for Automation Tables (New Schema) ---
+    try:
+        with db.engine.connect() as connection:
+            # Check if 'rule_name' exists in automation_rules (Indicator of new schema)
+            try:
+                connection.execute(text("SELECT rule_name FROM automation_rules LIMIT 1"))
+            except Exception:
+                print("[WARN] Automation schema mismatch. Recreating automation tables...")
+                # Drop old tables if they exist
+                connection.execute(text("DROP TABLE IF EXISTS automation_logs"))
+                connection.execute(text("DROP TABLE IF EXISTS automation_actions"))
+                connection.execute(text("DROP TABLE IF EXISTS automation_conditions"))
+                connection.execute(text("DROP TABLE IF EXISTS automation_rules"))
+                
+                # Recreate tables (SQLAlchemy will do this via create_all, but we need to ensure they are dropped first)
+                # Since create_all() was called at start, we might need to manually create or just let next restart handle it if we drop now.
+                # Better approach: Drop and let SQLAlchemy create them immediately.
+                
+                # We can't easily invoke db.create_all() again for specific tables without metadata binding tricks.
+                # So we will execute raw SQL for the new schema to be safe and immediate.
+                connection.execute(text("""
+                    CREATE TABLE automation_rules (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        rule_name VARCHAR(100) NOT NULL,
+                        description TEXT,
+                        trigger_type VARCHAR(50) NOT NULL,
+                        trigger_from VARCHAR(50),
+                        trigger_to VARCHAR(50),
+                        condition_logic VARCHAR(10) DEFAULT 'AND',
+                        priority INTEGER DEFAULT 1,
+                        is_active BOOLEAN DEFAULT 1,
+                        stop_processing BOOLEAN DEFAULT 0,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        company_id INTEGER
+                    )
+                """))
+                connection.execute(text("""
+                    CREATE TABLE automation_conditions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        rule_id INTEGER NOT NULL,
+                        field VARCHAR(50) NOT NULL,
+                        operator VARCHAR(20) NOT NULL,
+                        value VARCHAR(255) NOT NULL,
+                        FOREIGN KEY(rule_id) REFERENCES automation_rules(id)
+                    )
+                """))
+                connection.execute(text("""
+                    CREATE TABLE automation_actions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        rule_id INTEGER NOT NULL,
+                        action_type VARCHAR(50) NOT NULL,
+                        action_value VARCHAR(255),
+                        FOREIGN KEY(rule_id) REFERENCES automation_rules(id)
+                    )
+                """))
+                connection.execute(text("""
+                    CREATE TABLE automation_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        rule_id INTEGER,
+                        lead_id INTEGER,
+                        action_executed VARCHAR(50),
+                        executed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(rule_id) REFERENCES automation_rules(id)
+                    )
+                """))
+                connection.commit()
+                print("[OK] Automation tables recreated with new schema.")
+    except Exception as e:
+        print(f"Automation Migration Error: {e}")
 
     # --- Seeding Script ---
     if not models.Plan.query.first():

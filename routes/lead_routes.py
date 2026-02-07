@@ -5,37 +5,26 @@ from models.user import User
 from models.team import Team, LocationTeamMapping
 from routes.auth_routes import token_required
 from models.activity_logger import log_activity
+from services.automation_engine import run_automation
 from datetime import datetime
-import requests
 
 lead_bp = Blueprint('leads', __name__)
 
-# STEP 2, 3, 4, 5, 6: Create Lead Entry API with auto-assignment
+# --- Routes ---
+
 @lead_bp.route('/api/leads', methods=['POST'])
 def create_lead():
     data = request.get_json()
     if not data:
         return jsonify({'message': 'Invalid JSON data'}), 400
 
-    # STEP 3: Capture client IP in backend
-    ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
-    if ip_address in ['127.0.0.1', '::1']:
-        ip_address = '8.8.8.8'  # Default test IP for localhost
-
-    # STEP 4: Convert IP -> Location
-    city, state, country = None, None, None
-    try:
-        # Using a free IP geolocation service
-        response = requests.get(f'http://ip-api.com/json/{ip_address}')
-        response.raise_for_status()
-        loc_data = response.json()
-        if loc_data.get('status') == 'success':
-            city = loc_data.get('city')
-            state = loc_data.get('regionName')
-            country = loc_data.get('country')
-    except requests.exceptions.RequestException as e:
-        print(f"Could not get location from IP: {e}")
-        # Continue without location, as per "Never reject the lead"
+    # Determine IP Address (Priority: JSON -> Header -> Remote Addr)
+    ip_address = data.get('ip_address')
+    if not ip_address:
+        # Support for Postman simulation or Proxy headers
+        ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+        if ip_address and ',' in ip_address:
+            ip_address = ip_address.split(',')[0].strip()
 
     new_lead = Lead(
         name=data.get('name'),
@@ -43,67 +32,22 @@ def create_lead():
         phone=data.get('phone'),
         company=data.get('company'),
         source=data.get('source', 'website'),  # Default to 'website'
-        city=city,
-        state=state,
-        country=country,
+        ip_address=ip_address,
+        city=data.get('city'),
+        state=data.get('state'),
+        country=data.get('country'),
+        status="unassigned",
         created_at=datetime.utcnow()
     )
 
-    # STEP 5: Auto-assign lead using location
-    assigned_team_id = None
-    assigned_user_id = None
-    status = 'new'
-
-    team_mapping = None
-    if city and state and country:
-        team_mapping = LocationTeamMapping.query.filter_by(city=city, state=state, country=country).first()
-    if not team_mapping and state and country:
-        team_mapping = LocationTeamMapping.query.filter_by(state=state, country=country, city=None).first()
-    if not team_mapping and country:
-        team_mapping = LocationTeamMapping.query.filter_by(country=country, state=None, city=None).first()
-
-    if team_mapping:
-        # IF team found: assign team_id, assign first available user from team, status = assigned
-        assigned_team_id = team_mapping.team_id
-        # Find first user in that team (role='agent')
-        assigned_user = User.query.filter_by(team_id=assigned_team_id, role='agent').first()
-        if assigned_user:
-            assigned_user_id = assigned_user.id
-            status = 'assigned'
-        else:
-            # No agent in team, mark as unassigned but with team context
-            status = 'unassigned'
-    else:
-        # ELSE: assign to admin, status = unassigned
-        admin_user = User.query.filter(User.role.in_(['admin', 'SUPER_ADMIN'])).first()
-        if admin_user:
-            assigned_user_id = admin_user.id
-        status = 'unassigned'
-
-    new_lead.assigned_team_id = assigned_team_id
-    new_lead.assigned_user_id = assigned_user_id
-    new_lead.status = status
-
-    # STEP 6: Save lead in database
     try:
         db.session.add(new_lead)
-        db.session.commit()
+        db.session.commit() # Commit first to get ID
         
-        # Construct response matching requirements
-        response_payload = {
-            "message": "Lead created successfully",
-            "lead_id": new_lead.id,
-            "status": new_lead.status
-        }
+        # Run automation
+        run_automation("lead_created", new_lead)
         
-        if new_lead.assigned_team_id:
-            # Fetch team name for response
-            team = Team.query.get(new_lead.assigned_team_id)
-            response_payload["assigned_team"] = team.name if team else "Unknown"
-        else:
-            response_payload["assigned_to"] = "admin"
-
-        return jsonify(response_payload), 201
+        return jsonify({"message": "Lead created", "id": new_lead.id, "status": new_lead.status}), 201
     except Exception as e:
         db.session.rollback()
         print(f"Error saving lead: {e}")

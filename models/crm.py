@@ -11,6 +11,7 @@ class Lead(db.Model):
     city = db.Column(db.String(100))
     state = db.Column(db.String(100))
     country = db.Column(db.String(100))
+    ip_address = db.Column(db.String(50))
     source = db.Column(db.String(50)) # website / orbit / whatsapp
     assigned_team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
     assigned_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)

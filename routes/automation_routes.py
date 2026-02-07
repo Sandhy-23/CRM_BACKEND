@@ -26,18 +26,20 @@ def create_rule(current_user):
     data = request.get_json()
     
     # Validate required fields
-    if not all(k in data for k in ('name', 'module', 'trigger_event')):
+    if not all(k in data for k in ('rule_name', 'trigger_type')):
         return jsonify({'message': 'Missing required fields'}), 400
         
     new_rule = AutomationRule(
-        name=data['name'],
-        module=data['module'],
-        trigger_event=data['trigger_event'],
+        rule_name=data['rule_name'],
+        description=data.get('description'),
+        trigger_type=data['trigger_type'],
+        trigger_from=data.get('trigger_from'),
+        trigger_to=data.get('trigger_to'),
+        condition_logic=data.get('condition_logic', 'AND'),
         priority=data.get('priority', 1),
-        stop_on_match=data.get('stop_on_match', False),
+        stop_processing=data.get('stop_processing', False),
         is_active=data.get('is_active', True),
-        company_id=current_user.organization_id,
-        created_by=current_user.id
+        company_id=current_user.organization_id
     )
     
     try:
@@ -49,21 +51,19 @@ def create_rule(current_user):
             for cond in data['conditions']:
                 new_cond = AutomationCondition(
                     rule_id=new_rule.id,
-                    field_name=cond['field_name'],
+                    field=cond['field'],
                     operator=cond['operator'],
-                    value=cond['value'],
-                    logical_join=cond.get('logical_join', 'AND')
+                    value=cond['value']
                 )
                 db.session.add(new_cond)
                 
         # Add Actions
         if 'actions' in data:
-            for idx, act in enumerate(data['actions']):
+            for act in data['actions']:
                 new_act = AutomationAction(
                     rule_id=new_rule.id,
                     action_type=act['action_type'],
-                    action_order=idx + 1,
-                    config_json=json.dumps(act.get('config', {}))
+                    action_value=act.get('action_value')
                 )
                 db.session.add(new_act)
         
@@ -100,14 +100,12 @@ def toggle_rule(current_user, rule_id):
 @automation_bp.route('/automation/logs', methods=['GET'])
 @token_required
 def get_logs(current_user):
-    module = request.args.get('module')
-    record_id = request.args.get('record_id')
+    lead_id = request.args.get('lead_id')
     
     # Explicit join condition required since rule_id is not strictly a ForeignKey in the DB schema yet
     query = AutomationLog.query.join(AutomationRule, AutomationLog.rule_id == AutomationRule.id).filter(AutomationRule.company_id == current_user.organization_id)
     
-    if module: query = query.filter(AutomationLog.module == module)
-    if record_id: query = query.filter(AutomationLog.record_id == record_id)
+    if lead_id: query = query.filter(AutomationLog.lead_id == lead_id)
     
     logs = query.order_by(AutomationLog.created_at.desc()).limit(50).all()
     return jsonify([l.to_dict() for l in logs]), 200
