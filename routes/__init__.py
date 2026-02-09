@@ -14,3 +14,8 @@ from .task_routes import task_bp
 from .calendar_routes import calendar_bp
 from .activity_routes import activity_bp
 from .automation_routes import automation_bp
+from .inbox_routes import inbox_bp
+from .webhook_routes import webhook_bp
+from .channel_routes import channel_bp
+from .message_routes import message_bp
+from .conversation_routes import conversation_bp

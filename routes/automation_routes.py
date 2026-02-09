@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from extensions import db
-from models.automation import AutomationRule, AutomationCondition, AutomationAction, AutomationLog
+from models.automation import Automation, AutomationRule, AutomationAction
 from routes.auth_routes import token_required
 import json
 
@@ -16,71 +16,50 @@ def automation_health():
 def automation_test():
     return {"message": "Automation module working"}, 200
 
-# --- Automation Rules CRUD ---
-@automation_bp.route('/automation-rules', methods=['POST'])
+# --- Automations CRUD ---
+@automation_bp.route('/automations', methods=['POST'])
 @token_required
-def create_rule(current_user):
+def create_automation(current_user):
     if current_user.role not in ['SUPER_ADMIN', 'ADMIN']:
         return jsonify({'message': 'Unauthorized'}), 403
         
     data = request.get_json()
     
-    # Validate required fields
-    if not all(k in data for k in ('rule_name', 'trigger_type')):
-        return jsonify({'message': 'Missing required fields'}), 400
-        
-    new_rule = AutomationRule(
-        rule_name=data['rule_name'],
-        description=data.get('description'),
-        trigger_type=data['trigger_type'],
-        trigger_from=data.get('trigger_from'),
-        trigger_to=data.get('trigger_to'),
-        condition_logic=data.get('condition_logic', 'AND'),
-        priority=data.get('priority', 1),
-        stop_processing=data.get('stop_processing', False),
+    new_automation = Automation(
+        name=data.get('name', 'Untitled Automation'),
+        trigger_event=data.get('trigger_event'),
         is_active=data.get('is_active', True),
         company_id=current_user.organization_id
     )
     
     try:
-        db.session.add(new_rule)
+        db.session.add(new_automation)
         db.session.flush() # Get ID
         
-        # Add Conditions
-        if 'conditions' in data:
-            for cond in data['conditions']:
-                new_cond = AutomationCondition(
-                    rule_id=new_rule.id,
-                    field=cond['field'],
-                    operator=cond['operator'],
-                    value=cond['value']
-                )
-                db.session.add(new_cond)
-                
+        # Add Rules
+        for r in data.get('rules', []):
+            rule = AutomationRule(automation_id=new_automation.id, field=r['field'], operator=r['operator'], value=r['value'])
+            db.session.add(rule)
+            
         # Add Actions
-        if 'actions' in data:
-            for act in data['actions']:
-                new_act = AutomationAction(
-                    rule_id=new_rule.id,
-                    action_type=act['action_type'],
-                    action_value=act.get('action_value')
-                )
-                db.session.add(new_act)
-        
+        for a in data.get('actions', []):
+            action = AutomationAction(automation_id=new_automation.id, action_type=a['action_type'], action_value=a['action_value'])
+            db.session.add(action)
+            
         db.session.commit()
-        return jsonify({'message': 'Automation rule created', 'rule': new_rule.to_dict()}), 201
+        return jsonify({'message': 'Automation created', 'automation': new_automation.to_dict()}), 201
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-@automation_bp.route('/automation-rules', methods=['GET'])
+@automation_bp.route('/automations', methods=['GET'])
 @token_required
-def get_rules(current_user):
-    rules = AutomationRule.query.filter_by(
+def get_automations(current_user):
+    automations = Automation.query.filter_by(
         company_id=current_user.organization_id
-    ).order_by(AutomationRule.priority.asc()).all()
+    ).all()
     
-    return jsonify([r.to_dict() for r in rules]), 200
+    return jsonify([a.to_dict() for a in automations]), 200
 
 @automation_bp.route('/automation/rules/<int:rule_id>/toggle', methods=['PUT'])
 @token_required
@@ -96,16 +75,3 @@ def toggle_rule(current_user, rule_id):
     db.session.commit()
     
     return jsonify({'message': f'Rule {"enabled" if rule.is_active else "disabled"}', 'is_active': rule.is_active}), 200
-
-@automation_bp.route('/automation/logs', methods=['GET'])
-@token_required
-def get_logs(current_user):
-    lead_id = request.args.get('lead_id')
-    
-    # Explicit join condition required since rule_id is not strictly a ForeignKey in the DB schema yet
-    query = AutomationLog.query.join(AutomationRule, AutomationLog.rule_id == AutomationRule.id).filter(AutomationRule.company_id == current_user.organization_id)
-    
-    if lead_id: query = query.filter(AutomationLog.lead_id == lead_id)
-    
-    logs = query.order_by(AutomationLog.created_at.desc()).limit(50).all()
-    return jsonify([l.to_dict() for l in logs]), 200

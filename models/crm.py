@@ -15,7 +15,10 @@ class Lead(db.Model):
     source = db.Column(db.String(50)) # website / orbit / whatsapp
     assigned_team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
     assigned_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'), nullable=True)
     status = db.Column(db.String(50), default='new') # new, unassigned, assigned
+    is_deleted = db.Column(db.Boolean, default=False)
+    deleted_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     assigned_team = db.relationship('Team')
@@ -33,6 +36,7 @@ class Deal(db.Model):
     value = db.Column(db.Integer)
     owner = db.Column(db.String(100))
     close_date = db.Column(db.Date)
+    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class Activity(db.Model):

@@ -5,6 +5,7 @@ from routes.auth_routes import token_required
 from datetime import datetime, date
 from sqlalchemy import func
 from models.activity_logger import log_activity
+from services.automation_engine import run_workflow
 
 deal_bp = Blueprint('deals', __name__)
 
@@ -73,6 +74,10 @@ def create_deal(current_user):
     db.session.commit()
 
     log_activity("deal", "created", f"Deal '{new_deal.title}' created in {new_deal.pipeline}.", new_deal.id)
+    
+    # AUTOMATION HOOK
+    run_workflow("deal_created", new_deal)
+    
     return jsonify({
         "message": "Deal created successfully",
         "deal_id": new_deal.id
@@ -150,6 +155,7 @@ def update_deal(current_user, deal_id):
     if not deal:
         return jsonify({'message': 'Deal not found'}), 404
 
+    old_stage = deal.stage
     data = request.get_json()
     updated = False
     for field in ["title", "company", "stage", "value", "owner", "pipeline", "close_date"]:
@@ -167,6 +173,11 @@ def update_deal(current_user, deal_id):
     if updated:
         db.session.commit()
         log_activity("deal", "updated", f"Deal '{deal.title}' was updated.", deal.id)
+        
+        # AUTOMATION HOOK
+        if old_stage != deal.stage:
+            run_workflow("deal_updated", deal)
+            
         return jsonify({'message': 'Deal updated successfully'}), 200
     
     return jsonify({'message': 'No valid fields provided for update'}), 400
@@ -190,6 +201,7 @@ def update_deal_status(current_user, deal_id):
     if not deal:
         return jsonify({'message': 'Deal not found'}), 404
 
+    old_stage = deal.stage
     data = request.get_json()
     new_status = data.get('status')
 
@@ -210,6 +222,11 @@ def update_deal_status(current_user, deal_id):
     
     db.session.commit()
     log_activity("deal", "status_changed", f"Deal '{deal.title}' status changed to {new_stage}.", deal.id)
+    
+    # AUTOMATION HOOK
+    if old_stage != deal.stage:
+        run_workflow("deal_updated", deal)
+
     return jsonify({'message': f'Deal status updated to {new_stage}'}), 200
 
 @deal_bp.route('/api/deals/analytics', methods=['GET'])

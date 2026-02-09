@@ -1,9 +1,10 @@
 from flask import Flask, jsonify, g, request
 from flask_cors import CORS
+from flask_socketio import SocketIO
 from extensions import db, jwt
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
-from routes import auth_bp, social_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp, lead_bp, deal_bp, note_file_bp, calendar_bp, activity_bp, automation_bp
+from routes import auth_bp, social_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp, lead_bp, deal_bp, note_file_bp, calendar_bp, activity_bp, automation_bp, inbox_bp, webhook_bp, channel_bp, message_bp, conversation_bp
 from routes.import_export_routes import import_export_bp
 from routes.chart_routes import chart_bp
 from routes.organization_routes import organization_bp
@@ -22,18 +23,25 @@ from dotenv import load_dotenv
 from models.team import Team, LocationTeamMapping
 
 import models.automation # Register Automation Models
+import models.conversation
+import models.message
+import models.channel_account
+
 load_dotenv()
 
 
 app = Flask(__name__)
 app.config.from_object(Config)
+socketio = SocketIO(app, cors_allowed_origins="*")
 print(f"[OK] Database URI: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
 
 # Enable CORS for frontend (localhost:5173)
-CORS(app, resources={r"/*": {"origins": "http://localhost:5173"}},
-     supports_credentials=True,
-     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-     allow_headers=["Content-Type", "Authorization"])
+CORS(app, resources={
+    r"/api/*": {
+        "origins": ["http://localhost:5173", "http://192.168.1.15:5173"],
+        "supports_credentials": True
+    }
+})
 
 @app.before_request
 def log_request_info():
@@ -87,7 +95,12 @@ app.register_blueprint(calendar_bp, url_prefix="/api")
 app.register_blueprint(activity_bp, url_prefix="/api")
 app.register_blueprint(automation_bp, url_prefix="/api")
 app.register_blueprint(report_bp)
+app.register_blueprint(inbox_bp)
+app.register_blueprint(webhook_bp)
+app.register_blueprint(channel_bp)
 app.register_blueprint(team_bp)
+app.register_blueprint(message_bp)
+app.register_blueprint(conversation_bp)
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):
@@ -222,36 +235,47 @@ with app.app_context():
 
             # 3. Strict Schema Enforcement for Deals Table
             try:
-                with db.engine.connect() as connection:
-                    # Check if table exists and has the correct schema to avoid wiping data
-                    try:
-                        connection.execute(text("SELECT pipeline FROM deals LIMIT 1"))
-                    except Exception:
-                        # If fails (table missing or column missing), recreate it
-                        print("[WARN] Enforcing strict schema for 'deals' table...")
-                        connection.execute(text("DROP TABLE IF EXISTS deals"))
-                        connection.execute(text("""
-                            CREATE TABLE deals (
-                              id INTEGER PRIMARY KEY AUTOINCREMENT,
-                              lead_id INTEGER,
-                              title VARCHAR(100) NOT NULL,
-                              company VARCHAR(100),
-                              pipeline VARCHAR(50) NOT NULL,
-                              stage VARCHAR(50) NOT NULL,
-                              value INTEGER DEFAULT 0,
-                              owner VARCHAR(50),
-                              close_date DATE,
-                              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                              organization_id INTEGER,
-                              win_reason VARCHAR(255),
-                              loss_reason VARCHAR(255),
-                              closed_at DATETIME
-                            )
-                        """))
-                        connection.commit()
-                        print("[OK] Deals table recreated with strict schema.")
+                # Check if table exists and has the correct schema to avoid wiping data
+                try:
+                    connection.execute(text("SELECT pipeline FROM deals LIMIT 1"))
+                except Exception:
+                    # If fails (table missing or column missing), recreate it
+                    print("[WARN] Enforcing strict schema for 'deals' table...")
+                    connection.execute(text("DROP TABLE IF EXISTS deals"))
+                    connection.execute(text("""
+                        CREATE TABLE deals (
+                          id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          lead_id INTEGER,
+                          title VARCHAR(100) NOT NULL,
+                          company VARCHAR(100),
+                          pipeline VARCHAR(50) NOT NULL,
+                          stage VARCHAR(50) NOT NULL,
+                          value INTEGER DEFAULT 0,
+                          owner VARCHAR(50),
+                          close_date DATE,
+                          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                          organization_id INTEGER,
+                          win_reason VARCHAR(255),
+                          loss_reason VARCHAR(255),
+                          closed_at DATETIME
+                        )
+                    """))
+                    connection.commit()
+                    print("[OK] Deals table recreated with strict schema.")
             except Exception as e:
                 print(f"[FAIL] Deals Migration Error: {e}")
+
+            # 3.1 Ensure organization_id exists in deals (Fix for existing tables)
+            try:
+                connection.execute(text("SELECT organization_id FROM deals LIMIT 1"))
+            except Exception:
+                print("[WARN] Column 'organization_id' not found in deals. Adding...")
+                try:
+                    connection.execute(text("ALTER TABLE deals ADD COLUMN organization_id INTEGER"))
+                    print("[OK] Added column: organization_id to deals")
+                    connection.commit()
+                except Exception as e:
+                    print(f"[FAIL] Error adding organization_id to deals: {e}")
 
             # 4. Deprecated Analytics Columns (Cleanup)
             try:
@@ -597,72 +621,113 @@ with app.app_context():
     # --- Auto-Migration for Automation Tables (New Schema) ---
     try:
         with db.engine.connect() as connection:
-            # Check if 'rule_name' exists in automation_rules (Indicator of new schema)
+            # Check if 'automations' table exists (Indicator of Production Schema)
             try:
-                connection.execute(text("SELECT rule_name FROM automation_rules LIMIT 1"))
+                connection.execute(text("SELECT trigger_event FROM automations LIMIT 1"))
             except Exception:
-                print("[WARN] Automation schema mismatch. Recreating automation tables...")
+                print("[WARN] Automation schema mismatch. Recreating automation tables for Production...")
                 # Drop old tables if they exist
                 connection.execute(text("DROP TABLE IF EXISTS automation_logs"))
                 connection.execute(text("DROP TABLE IF EXISTS automation_actions"))
                 connection.execute(text("DROP TABLE IF EXISTS automation_conditions"))
                 connection.execute(text("DROP TABLE IF EXISTS automation_rules"))
+                connection.execute(text("DROP TABLE IF EXISTS automations"))
+                connection.execute(text("DROP TABLE IF EXISTS workflow_logs"))
                 
-                # Recreate tables (SQLAlchemy will do this via create_all, but we need to ensure they are dropped first)
-                # Since create_all() was called at start, we might need to manually create or just let next restart handle it if we drop now.
-                # Better approach: Drop and let SQLAlchemy create them immediately.
-                
-                # We can't easily invoke db.create_all() again for specific tables without metadata binding tricks.
-                # So we will execute raw SQL for the new schema to be safe and immediate.
                 connection.execute(text("""
-                    CREATE TABLE automation_rules (
+                    CREATE TABLE automations (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        rule_name VARCHAR(100) NOT NULL,
-                        description TEXT,
-                        trigger_type VARCHAR(50) NOT NULL,
-                        trigger_from VARCHAR(50),
-                        trigger_to VARCHAR(50),
-                        condition_logic VARCHAR(10) DEFAULT 'AND',
-                        priority INTEGER DEFAULT 1,
+                        name VARCHAR(255),
+                        trigger_event VARCHAR(50),
                         is_active BOOLEAN DEFAULT 1,
-                        stop_processing BOOLEAN DEFAULT 0,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         company_id INTEGER
                     )
                 """))
                 connection.execute(text("""
-                    CREATE TABLE automation_conditions (
+                    CREATE TABLE automation_rules (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        rule_id INTEGER NOT NULL,
-                        field VARCHAR(50) NOT NULL,
-                        operator VARCHAR(20) NOT NULL,
-                        value VARCHAR(255) NOT NULL,
-                        FOREIGN KEY(rule_id) REFERENCES automation_rules(id)
+                        automation_id INTEGER,
+                        field VARCHAR(50),
+                        operator VARCHAR(10),
+                        value VARCHAR(50),
+                        FOREIGN KEY(automation_id) REFERENCES automations(id)
                     )
                 """))
                 connection.execute(text("""
                     CREATE TABLE automation_actions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        rule_id INTEGER NOT NULL,
-                        action_type VARCHAR(50) NOT NULL,
-                        action_value VARCHAR(255),
-                        FOREIGN KEY(rule_id) REFERENCES automation_rules(id)
+                        automation_id INTEGER,
+                        action_type VARCHAR(50),
+                        action_value VARCHAR(100),
+                        FOREIGN KEY(automation_id) REFERENCES automations(id)
                     )
                 """))
                 connection.execute(text("""
-                    CREATE TABLE automation_logs (
+                    CREATE TABLE workflow_logs (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        rule_id INTEGER,
-                        lead_id INTEGER,
-                        action_executed VARCHAR(50),
+                        automation_id INTEGER,
+                        deal_id INTEGER,
+                        status VARCHAR(20),
                         executed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY(rule_id) REFERENCES automation_rules(id)
+                        FOREIGN KEY(automation_id) REFERENCES automations(id)
                     )
                 """))
                 connection.commit()
-                print("[OK] Automation tables recreated with new schema.")
+                print("[OK] Automation tables recreated with Production schema.")
     except Exception as e:
         print(f"Automation Migration Error: {e}")
+
+    # --- Auto-Migration for Inbox Tables ---
+    try:
+        with db.engine.connect() as connection:
+            try:
+                connection.execute(text("SELECT channel FROM conversations LIMIT 1"))
+            except Exception:
+                print("[WARN] Inbox tables not found. Creating...")
+                # Drop old whatsapp tables if they exist to avoid confusion
+                connection.execute(text("DROP TABLE IF EXISTS whatsapp_accounts"))
+                connection.execute(text("DROP TABLE IF EXISTS conversations")) # Recreate with new schema
+                connection.execute(text("DROP TABLE IF EXISTS messages"))      # Recreate with new schema
+                
+                connection.execute(text("""
+                    CREATE TABLE conversations (
+                        id VARCHAR(36) PRIMARY KEY,
+                        channel VARCHAR(50) NOT NULL,
+                        lead_id INTEGER,
+                        assigned_to INTEGER,
+                        status VARCHAR(20) DEFAULT 'open',
+                        last_message_at DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        organization_id INTEGER
+                    )
+                """))
+                connection.execute(text("""
+                    CREATE TABLE messages (
+                        id VARCHAR(36) PRIMARY KEY,
+                        conversation_id VARCHAR(36) NOT NULL,
+                        channel VARCHAR(50) NOT NULL,
+                        sender_type VARCHAR(20),
+                        content TEXT,
+                        status VARCHAR(20),
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                connection.execute(text("""
+                    CREATE TABLE channel_accounts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        channel VARCHAR(50) NOT NULL,
+                        account_name VARCHAR(100),
+                        access_token TEXT,
+                        credentials JSON,
+                        status VARCHAR(20) DEFAULT 'connected',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        organization_id INTEGER
+                    )
+                """))
+                print("[OK] Inbox tables created.")
+    except Exception as e:
+        print(f"Inbox Migration Error: {e}")
 
     # --- Seeding Script ---
     if not models.Plan.query.first():
@@ -711,4 +776,4 @@ with app.app_context():
         print("✅ Teams seeded for testing.")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=True)
