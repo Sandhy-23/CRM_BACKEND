@@ -12,3 +12,7 @@ class Contact(db.Model):
     owner = db.Column(db.String(50))
     last_contact = db.Column(db.String(50))
     status = db.Column(db.String(20))
+    
+    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
+    is_deleted = db.Column(db.Boolean, default=False)
+    deleted_at = db.Column(db.DateTime, nullable=True)

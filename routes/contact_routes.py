@@ -3,6 +3,7 @@ from routes.auth_routes import token_required
 from models.contact import Contact
 from extensions import db
 from sqlalchemy import text
+from datetime import datetime
 
 contact_bp = Blueprint('contacts', __name__)
 
@@ -24,6 +25,7 @@ def create_contact(current_user):
         owner=data.get("owner"),
         last_contact=data.get("lastContact"),
         status=data.get("status"),
+        organization_id=current_user.organization_id
     )
     
     db.session.add(new_contact)
@@ -35,7 +37,10 @@ def create_contact(current_user):
 @contact_bp.route('/api/contacts', methods=['GET'])
 @token_required
 def get_contacts(current_user):
-    contacts = Contact.query.order_by(Contact.id.desc()).all()
+    contacts = Contact.query.filter_by(
+        organization_id=current_user.organization_id,
+        is_deleted=False
+    ).order_by(Contact.id.desc()).all()
     
     return jsonify([{
         "id": c.id,
@@ -45,14 +50,19 @@ def get_contacts(current_user):
         "phone": c.phone,
         "owner": c.owner,
         "lastContact": c.last_contact,
-        "status": c.status
+        "status": c.status,
+        "tag": c.status  # Mapping status to tag for frontend compatibility
     } for c in contacts])
 
 # 👤 3. Get Contact Profile
 @contact_bp.route('/api/contacts/<int:contact_id>', methods=['GET'])
 @token_required
 def get_contact(current_user, contact_id):
-    c = Contact.query.filter_by(id=contact_id).first_or_404()
+    c = Contact.query.filter_by(
+        id=contact_id, 
+        organization_id=current_user.organization_id,
+        is_deleted=False
+    ).first_or_404()
     return jsonify({
         "id": c.id,
         "name": c.name,
@@ -68,7 +78,11 @@ def get_contact(current_user, contact_id):
 @contact_bp.route('/api/contacts/<int:contact_id>', methods=['PUT'])
 @token_required
 def update_contact(current_user, contact_id):
-    c = Contact.query.get_or_404(contact_id)
+    c = Contact.query.filter_by(
+        id=contact_id, 
+        organization_id=current_user.organization_id,
+        is_deleted=False
+    ).first_or_404()
     data = request.get_json()
 
     for field in ["name", "company", "email", "phone", "owner", "status"]:
@@ -81,12 +95,18 @@ def update_contact(current_user, contact_id):
     db.session.commit()
     return jsonify({"message": "Contact updated"})
 
-# 🗑️ 5. Delete Contact (HARD DELETE)
+# 🗑️ 5. Delete Contact (SOFT DELETE)
 @contact_bp.route('/api/contacts/<int:contact_id>', methods=['DELETE'])
 @token_required
 def delete_contact(current_user, contact_id):
-    c = Contact.query.get_or_404(contact_id)
-    db.session.delete(c)
+    c = Contact.query.filter_by(
+        id=contact_id, 
+        organization_id=current_user.organization_id
+    ).first_or_404()
+    
+    c.is_deleted = True
+    c.deleted_at = datetime.utcnow()
+    
     db.session.commit()
     return jsonify({"message": "Contact deleted"})
 
@@ -96,7 +116,9 @@ def delete_contact(current_user, contact_id):
 def search_contacts(current_user):
     q = request.args.get("q", "")
     contacts = Contact.query.filter(
-        Contact.name.ilike(f"%{q}%")
+        Contact.name.ilike(f"%{q}%"),
+        Contact.organization_id == current_user.organization_id,
+        Contact.is_deleted == False
     ).all()
 
     return jsonify([{"id": c.id, "name": c.name} for c in contacts])

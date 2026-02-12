@@ -13,6 +13,9 @@ class Lead(db.Model):
     country = db.Column(db.String(100))
     ip_address = db.Column(db.String(50))
     source = db.Column(db.String(50)) # website / orbit / whatsapp
+    score = db.Column(db.String(20))
+    sla = db.Column(db.String(20))
+    description = db.Column(db.Text)
     assigned_team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
     assigned_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'), nullable=True)
@@ -38,6 +41,8 @@ class Deal(db.Model):
     close_date = db.Column(db.Date)
     organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_deleted = db.Column(db.Boolean, default=False)
+    deleted_at = db.Column(db.DateTime, nullable=True)
 
 class Activity(db.Model):
     __tablename__ = 'activities'
@@ -55,11 +60,4 @@ class Ticket(db.Model):
     title = db.Column(db.String(255))
     description = db.Column(db.Text)
     status = db.Column(db.String(50), default="open")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-class Campaign(db.Model):
-    __tablename__ = "campaigns"
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

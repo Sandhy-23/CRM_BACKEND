@@ -98,9 +98,9 @@ def send_email(to_email, subject, body):
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        # Allow OPTIONS requests to bypass auth (CORS preflight)
-        if request.method == 'OPTIONS':
-            return jsonify({'status': 'OK'}), 200
+        # ✅ ALLOW PREFLIGHT
+        if request.method == "OPTIONS":
+            return "", 200
 
         try:
             verify_jwt_in_request()
@@ -108,10 +108,10 @@ def token_required(f):
             current_user = User.query.get(int(user_id))
             if not current_user:
                 print(f"[FAIL] Auth Error: User ID {user_id} not found in database.")
-                return jsonify({'message': 'User not found!'}), 401
+                return jsonify({"error": "Unauthorized", "message": "User not found"}), 401
         except Exception as e:
             print(f"[FAIL] Auth Error: Token verification failed. {str(e)}")
-            return jsonify({'message': 'Token is invalid!', 'error': str(e)}), 401
+            return jsonify({"error": "Unauthorized", "message": str(e)}), 401
             
         return f(current_user, *args, **kwargs)
     return decorated
@@ -355,7 +355,8 @@ def resend_otp():
             print(f"[FAIL] DB ERROR in resend_otp: {str(e)}")
             return jsonify({"error": "Database error", "message": str(e)}), 500
 
-@auth_bp.route('/login', methods=['POST'])
+@auth_bp.route('/login', methods=['POST', 'OPTIONS'])
+@cross_origin()
 def login():
     data = request.get_json()
     email = data.get('email', '').strip().lower()

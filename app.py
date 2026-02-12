@@ -1,10 +1,17 @@
-from flask import Flask, jsonify, g, request
+import sys
+import os
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from flask import Flask, jsonify, g, request, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO
+from flask_migrate import Migrate
 from extensions import db, jwt
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
-from routes import auth_bp, social_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp, lead_bp, deal_bp, note_file_bp, calendar_bp, activity_bp, automation_bp, inbox_bp, webhook_bp, channel_bp, message_bp, conversation_bp
+from routes import auth_bp, social_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp, lead_bp, deal_bp, note_file_bp, calendar_bp, activity_bp, inbox_bp, webhook_bp, channel_bp, message_bp, conversation_bp
+from routes.campaign_routes import campaign_bp
 from routes.import_export_routes import import_export_bp
 from routes.chart_routes import chart_bp
 from routes.organization_routes import organization_bp
@@ -13,6 +20,12 @@ from routes.pipeline_routes import pipeline_bp
 from routes.task_routes import task_bp
 from routes.report_routes import report_bp
 from routes.team_routes import team_bp
+from routes.call_routes import call_bp
+from routes.landing_page_routes import landing_page_bp
+from routes.marketing_analytics_routes import marketing_analytics_bp
+from routes.team_management_routes import team_management_bp
+from routes.automation_routes import automation_bp
+from drip_routes import drip_bp
 from config import Config
 from models.crm import Deal
 import models
@@ -21,27 +34,32 @@ from models.calendar_event import CalendarEvent
 from models.reminder import Reminder
 from dotenv import load_dotenv
 from models.team import Team, LocationTeamMapping
+from scheduler import process_drip_emails
+from services.scheduler_instance import scheduler # Import global scheduler
 
 import models.automation # Register Automation Models
 import models.conversation
 import models.message
 import models.channel_account
+import drip_campaign # Register Drip Campaign Models
+import models.call # Register Call Model
+import models.campaign_log # Register Campaign Log Model
+import models.whatsapp_log
+import models.landing_page
 
 load_dotenv()
 
 
 app = Flask(__name__)
+CORS(
+    app,
+    resources={r"/api/*": {"origins": "*"}},
+    supports_credentials=True,
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+)
 app.config.from_object(Config)
 socketio = SocketIO(app, cors_allowed_origins="*")
 print(f"[OK] Database URI: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
-
-# Enable CORS for frontend (localhost:5173)
-CORS(app, resources={
-    r"/api/*": {
-        "origins": ["http://localhost:5173", "http://192.168.1.15:5173"],
-        "supports_credentials": True
-    }
-})
 
 @app.before_request
 def log_request_info():
@@ -74,6 +92,7 @@ def load_user_context_from_token():
 
 db.init_app(app)
 jwt.init_app(app)
+migrate = Migrate(app, db)
 
 app.register_blueprint(auth_bp, url_prefix="/auth")
 app.register_blueprint(social_bp, url_prefix="/api/auth")
@@ -101,6 +120,12 @@ app.register_blueprint(channel_bp)
 app.register_blueprint(team_bp)
 app.register_blueprint(message_bp)
 app.register_blueprint(conversation_bp)
+app.register_blueprint(campaign_bp)
+app.register_blueprint(drip_bp)
+app.register_blueprint(call_bp)
+app.register_blueprint(landing_page_bp)
+app.register_blueprint(marketing_analytics_bp)
+app.register_blueprint(team_management_bp)
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):
@@ -112,11 +137,20 @@ def handle_integrity_error(e):
 def handle_method_not_allowed(e):
     return jsonify({"error": "Method not allowed", "message": "The method is not allowed for the requested URL."}), 405
 
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({"error": "Route not found"}), 404
+
+@app.route('/uploads/<path:filename>')
+def uploaded_file(filename):
+    return send_from_directory('uploads', filename)
+
 with app.app_context():
     # db.drop_all() # Uncomment this ONLY if you need to reset the DB completely
-    db.create_all()
+    # db.create_all() # Removed in favor of Flask-Migrate
     
     # --- Auto-Migration for Users Table (Fix for missing columns) ---
+    """
     try:
         with db.engine.connect() as connection:
             # Check if is_verified column exists
@@ -162,10 +196,37 @@ with app.app_context():
                     print(f"[FAIL] Error adding team_id: {e}")
 
                 print("[OK] User table migration complete.")
+            
+            # Check if branch_id column exists (Team Management)
+            try:
+                connection.execute(text("SELECT branch_id FROM users LIMIT 1"))
+            except Exception:
+                print("[WARN] Column 'branch_id' not found in users. Adding...")
+                try:
+                    connection.execute(text("ALTER TABLE users ADD COLUMN branch_id INTEGER"))
+                    print("[OK] Added column: branch_id")
+                    connection.commit()
+                except Exception as e:
+                    print(f"[FAIL] Error adding branch_id: {e}")
+
+            # Check if last_active column exists (Heartbeat)
+            try:
+                connection.execute(text("SELECT last_active FROM users LIMIT 1"))
+            except Exception:
+                print("[WARN] Column 'last_active' not found in users. Adding...")
+                try:
+                    connection.execute(text("ALTER TABLE users ADD COLUMN last_active DATETIME"))
+                    print("[OK] Added column: last_active")
+                    connection.commit()
+                except Exception as e:
+                    print(f"[FAIL] Error adding last_active: {e}")
+
     except Exception as e:
         print(f"Migration Error: {e}")
+    """
     
     # --- Fix Users with NULL Organization ID ---
+    """
     try:
         with db.engine.connect() as connection:
             # If users exist with NULL org_id, assign them to the first organization found (Dev Fix)
@@ -174,9 +235,11 @@ with app.app_context():
             # print("✔ Fixed users with missing organization_id")
     except Exception as e:
         print(f"Data Fix Error: {e}")
+    """
     # -------------------------------------------
 
     # --- Auto-Migration for Leads & Deals (Fix for missing columns) ---
+    '''
     try:
         with db.engine.connect() as connection:
             # 1. Clean up Leads Table (Drop unwanted columns)
@@ -213,6 +276,7 @@ with app.app_context():
                 ("description", "TEXT"),
                 ("updated_at", "DATETIME"),
                 ("is_deleted", "BOOLEAN DEFAULT 0"),
+                ("deleted_at", "DATETIME"),
                 ("organization_id", "INTEGER"),
                 ("city", "VARCHAR(100)"),
                 ("state", "VARCHAR(100)"),
@@ -232,6 +296,18 @@ with app.app_context():
                     except Exception as e:
                         print(f"[FAIL] Error adding {col_name}: {e}")
             connection.commit()
+
+            # Check if branch_id column exists in leads (Landing Pages)
+            try:
+                connection.execute(text("SELECT branch_id FROM leads LIMIT 1"))
+            except Exception:
+                print("[WARN] Column 'branch_id' not found in leads. Adding...")
+                try:
+                    connection.execute(text("ALTER TABLE leads ADD COLUMN branch_id INTEGER"))
+                    print("[OK] Added column: branch_id to leads")
+                    connection.commit()
+                except Exception as e:
+                    print(f"[FAIL] Error adding branch_id to leads: {e}")
 
             # 3. Strict Schema Enforcement for Deals Table
             try:
@@ -479,8 +555,10 @@ with app.app_context():
             print("[OK] Database migration complete.")
     except Exception as e:
         print(f"CRM Migration Error: {e}")
+    '''
 
     # --- Auto-Migration for Tasks Table ---
+    """
     try:
         with db.engine.connect() as connection:
             # Check for 'company_id' (New Schema)
@@ -511,8 +589,10 @@ with app.app_context():
                 connection.commit()
     except Exception as e:
         print(f"Task Migration Error: {e}")
+    """
 
     # --- Auto-Migration for Tasks Table (Calendar Support) ---
+    """
     try:
         with db.engine.connect() as connection:
             # Check for 'task_date'
@@ -562,8 +642,10 @@ with app.app_context():
             connection.commit()
     except Exception as e:
         print(f"Task Calendar Migration Error: {e}")
+    """
 
     # --- Auto-Migration for Password Resets Table ---
+    """
     try:
         with db.engine.connect() as connection:
             # Check for 'reset_token'
@@ -579,8 +661,10 @@ with app.app_context():
                     print(f"[FAIL] Error adding reset_token column: {e}")
     except Exception as e:
         print(f"Password Reset Migration Error: {e}")
+    """
 
     # --- Auto-Migration for Notes Table (Simplify Schema) ---
+    """
     try:
         with db.engine.connect() as connection:
             # Check if old columns exist (e.g., entity_type)
@@ -617,15 +701,37 @@ with app.app_context():
                 print("[OK] Notes table migration complete.")
     except Exception as e:
         print(f"Notes Migration Error: {e}")
+    """
 
-    # --- Auto-Migration for Automation Tables (New Schema) ---
+    # --- Auto-Migration for Contacts Table (Org Isolation & Soft Delete) ---
+    '''
     try:
         with db.engine.connect() as connection:
-            # Check if 'automations' table exists (Indicator of Production Schema)
+            contact_new_cols = [
+                ("organization_id", "INTEGER"),
+                ("is_deleted", "BOOLEAN DEFAULT 0"),
+                ("deleted_at", "DATETIME")
+            ]
+            for col_name, col_type in contact_new_cols:
+                try:
+                    connection.execute(text(f"ALTER TABLE contacts ADD COLUMN {col_name} {col_type}"))
+                    print(f"[OK] Added column: {col_name} to contacts")
+                except Exception:
+                    pass
+            connection.commit()
+    except Exception as e:
+        print(f"Contacts Migration Error: {e}")
+    '''
+
+    # --- Auto-Migration for Automation Tables (New Schema) ---
+    '''
+    try:
+        with db.engine.connect() as connection:
+            # Check if 'automation_conditions' table exists (Indicator of New Schema)
             try:
-                connection.execute(text("SELECT trigger_event FROM automations LIMIT 1"))
+                connection.execute(text("SELECT field FROM automation_conditions LIMIT 1"))
             except Exception:
-                print("[WARN] Automation schema mismatch. Recreating automation tables for Production...")
+                print("[WARN] Automation schema mismatch. Recreating automation tables for Professional Structure...")
                 # Drop old tables if they exist
                 connection.execute(text("DROP TABLE IF EXISTS automation_logs"))
                 connection.execute(text("DROP TABLE IF EXISTS automation_actions"))
@@ -638,27 +744,31 @@ with app.app_context():
                     CREATE TABLE automations (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         name VARCHAR(255),
-                        trigger_event VARCHAR(50),
-                        is_active BOOLEAN DEFAULT 1,
-                        company_id INTEGER
+                        trigger_event VARCHAR(100),
+                        status VARCHAR(50) DEFAULT 'active',
+                        branch_id INTEGER,
+                        organization_id INTEGER NOT NULL,
+                        created_by INTEGER,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
                 """))
                 connection.execute(text("""
-                    CREATE TABLE automation_rules (
+                    CREATE TABLE automation_conditions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        automation_id INTEGER,
-                        field VARCHAR(50),
-                        operator VARCHAR(10),
-                        value VARCHAR(50),
+                        automation_id INTEGER NOT NULL,
+                        field VARCHAR(100),
+                        operator VARCHAR(50),
+                        value VARCHAR(255),
                         FOREIGN KEY(automation_id) REFERENCES automations(id)
                     )
                 """))
                 connection.execute(text("""
                     CREATE TABLE automation_actions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        automation_id INTEGER,
-                        action_type VARCHAR(50),
-                        action_value VARCHAR(100),
+                        automation_id INTEGER NOT NULL,
+                        type VARCHAR(100) NOT NULL,
+                        template_id INTEGER,
+                        delay_minutes INTEGER DEFAULT 0,
                         FOREIGN KEY(automation_id) REFERENCES automations(id)
                     )
                 """))
@@ -676,8 +786,10 @@ with app.app_context():
                 print("[OK] Automation tables recreated with Production schema.")
     except Exception as e:
         print(f"Automation Migration Error: {e}")
+    '''
 
     # --- Auto-Migration for Inbox Tables ---
+    '''
     try:
         with db.engine.connect() as connection:
             try:
@@ -728,8 +840,10 @@ with app.app_context():
                 print("[OK] Inbox tables created.")
     except Exception as e:
         print(f"Inbox Migration Error: {e}")
+    '''
 
     # --- Seeding Script ---
+    # Note: Seeding requires tables to exist. Run 'flask db upgrade' before starting app.
     if not models.Plan.query.first():
         print("Seeding database with default plans and features...")
         
@@ -776,4 +890,16 @@ with app.app_context():
         print("✅ Teams seeded for testing.")
 
 if __name__ == "__main__":
+    # --- Background Scheduler for Drip Campaigns ---
+    def job_function():
+        with app.app_context():
+            process_drip_emails()
+
+    # Add Drip Campaign Job
+    scheduler.add_job(func=job_function, trigger="interval", minutes=1, id="drip_email_job")
+    
+    # Start the global scheduler
+    scheduler.start()
+    print("[OK] Background scheduler started (Campaigns + Drip).")
+
     socketio.run(app, host="0.0.0.0", port=5000, debug=True)

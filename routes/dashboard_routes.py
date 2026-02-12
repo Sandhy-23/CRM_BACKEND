@@ -25,10 +25,10 @@ def super_admin_dashboard(current_user, org_name):
     
     # 1. Global Metrics (Aggregated from DB)
     # Filter by Organization for isolation
-    total_users = User.query.filter_by(organization_id=current_user.organization_id).count()
+    total_users = User.query.filter_by(organization_id=current_user.organization_id, is_deleted=False).count()
     
     # 2. Recent System Activity (From LoginHistory table)
-    recent_logins = LoginHistory.query.join(User).filter(User.organization_id == current_user.organization_id).order_by(LoginHistory.login_time.desc()).limit(5).all()
+    recent_logins = LoginHistory.query.join(User).filter(User.organization_id == current_user.organization_id, User.is_deleted == False).order_by(LoginHistory.login_time.desc()).limit(5).all()
     activity_log = [{
         "user_id": log.user_id,
         "time": log.login_time.isoformat(),
@@ -38,7 +38,7 @@ def super_admin_dashboard(current_user, org_name):
 
     # 3. All Users List
     # Optimization: Limit to first 50 users to prevent large payload
-    all_users = User.query.filter_by(organization_id=current_user.organization_id).limit(50).all()
+    all_users = User.query.filter_by(organization_id=current_user.organization_id, is_deleted=False).limit(50).all()
     users_data = [{
         "id": user.id,
         "name": user.name,
@@ -67,7 +67,7 @@ def admin_dashboard(current_user, org_name):
     
     # Admin sees users in their Organization (or all if logic dictates, here we show Org view)
     if current_user.organization:
-        org_users = User.query.filter_by(organization_id=current_user.organization_id).all()
+        org_users = User.query.filter_by(organization_id=current_user.organization_id, is_deleted=False).all()
         org_name_db = current_user.organization.name
     else:
         org_users = []
@@ -98,7 +98,7 @@ def hr_dashboard(current_user, org_name):
     
     # HR sees only users in their own Organization
     if current_user.organization:
-        org_users = User.query.filter_by(organization_id=current_user.organization_id).all()
+        org_users = User.query.filter_by(organization_id=current_user.organization_id, is_deleted=False).all()
         org_name_db = current_user.organization.name
     else:
         org_users = []
@@ -130,7 +130,8 @@ def manager_dashboard(current_user, org_name):
     if current_user.organization:
         org_users = User.query.filter_by(
             organization_id=current_user.organization_id, 
-            department=current_user.department
+            department=current_user.department,
+            is_deleted=False
         ).all()
         org_name_db = current_user.organization.name
     else:
@@ -227,21 +228,21 @@ def get_kpis(current_user):
     activities_query = Activity.query
 
     if start_date:
-        leads_query = leads_query.filter(Lead.created_at >= start_date)
-        deals_query = deals_query.filter(Deal.created_at >= start_date, Deal.organization_id == current_user.organization_id)
+        leads_query = leads_query.filter(Lead.created_at >= start_date, Lead.is_deleted == False)
+        deals_query = deals_query.filter(Deal.created_at >= start_date, Deal.organization_id == current_user.organization_id, Deal.is_deleted == False)
         activities_query = activities_query.filter(Activity.created_at >= start_date, Activity.organization_id == current_user.organization_id)
 
     # 3. Calculate Metrics
-    total_leads = leads_query.count()
-    converted_leads = leads_query.filter_by(status='Converted').count()
+    total_leads = leads_query.filter(Lead.is_deleted == False).count()
+    converted_leads = leads_query.filter_by(status='Converted', is_deleted=False).count()
     conversion_rate = round((converted_leads / total_leads * 100), 2) if total_leads > 0 else 0
 
-    total_deals = deals_query.count()
-    won_deals = deals_query.filter_by(stage='Won').count()
-    lost_deals = deals_query.filter_by(stage='Lost').count()
+    total_deals = deals_query.filter(Deal.is_deleted == False).count()
+    won_deals = deals_query.filter_by(stage='Won', is_deleted=False).count()
+    lost_deals = deals_query.filter_by(stage='Lost', is_deleted=False).count()
     
     # Revenue (Sum of value of Won deals)
-    revenue = deals_query.filter(Deal.stage == 'Won').with_entities(func.sum(Deal.value)).scalar() or 0.0
+    revenue = deals_query.filter(Deal.stage == 'Won', Deal.is_deleted == False).with_entities(func.sum(Deal.value)).scalar() or 0.0
 
     tasks_completed = activities_query.filter_by(status='Completed').count()
 
@@ -498,7 +499,7 @@ def get_team_data(current_user):
         return jsonify({'message': 'Permission denied'}), 403
 
     # Fetch users (excluding self)
-    team_members = User.query.filter(User.id != current_user.id).all()
+    team_members = User.query.filter(User.id != current_user.id, User.is_deleted == False).all()
     
     data = [{
         'id': member.id,
@@ -592,10 +593,10 @@ def leads_summary(current_user):
     if current_user.role != 'SUPER_ADMIN':
         pass
         
-    total = query.count()
+    total = query.filter_by(is_deleted=False).count()
     today = datetime.utcnow().date()
-    new_today = query.filter(func.date(Lead.created_at) == today).count()
-    converted = query.filter_by(status='Converted').count()
+    new_today = query.filter(func.date(Lead.created_at) == today, Lead.is_deleted == False).count()
+    converted = query.filter_by(status='Converted', is_deleted=False).count()
     
     return jsonify({
         "total_leads": total,
@@ -609,24 +610,28 @@ def deals_pipeline(current_user):
     query = Deal.query
     # RBAC is simplified for now as per instructions
     # Group by Stage
-    results = db.session.query(Deal.stage, func.count(Deal.id)).filter(Deal.id.in_([d.id for d in query.with_entities(Deal.id).all()])).group_by(Deal.stage).all()
+    results = db.session.query(Deal.stage, func.count(Deal.id))\
+        .filter(Deal.is_deleted == False)\
+        .group_by(Deal.stage).all()
+        
     return jsonify({r[0]: r[1] for r in results})
 
 # --- NEW DASHBOARD ANALYTICS ENDPOINTS (Final JSON Target) ---
 
-@dashboard_bp.route('/dashboard/summary', methods=['GET'])
+@dashboard_bp.route('/dashboard/summary', methods=['GET', 'OPTIONS'])
 @token_required
 def dashboard_summary(current_user):
     """
     Returns dashboard summary metrics as per specific frontend requirements.
     """
     # 1. Total Leads
-    total_leads = Lead.query.count()
+    total_leads = Lead.query.filter_by(is_deleted=False).count()
 
     # 2. Active Deals (Not Won or Lost)
     # Matches: SELECT COUNT(*) FROM deals WHERE status = 'Active' (mapped to stages)
     active_deals = Deal.query.filter(
-        func.lower(Deal.stage).notin_(['won', 'closed won', 'lost', 'closed lost'])
+        func.lower(Deal.stage).notin_(['won', 'closed won', 'lost', 'closed lost']),
+        Deal.is_deleted == False
     ).count()
 
     # 3. Revenue (This Quarter)
@@ -645,7 +650,8 @@ def dashboard_summary(current_user):
     revenue = db.session.query(func.sum(Deal.value)).filter(
         func.lower(Deal.stage).in_(['won', 'closed won']),
         Deal.close_date >= quarter_start_date,
-        Deal.close_date < next_q_start
+        Deal.close_date < next_q_start,
+        Deal.is_deleted == False
     ).scalar() or 0
 
     # 4. Tasks Due (Today or Future)
@@ -674,9 +680,9 @@ def dashboard_summary(current_user):
 @dashboard_bp.route('/dashboard/win-loss', methods=['GET'])
 @token_required
 def dashboard_win_loss(current_user):
-    won = Deal.query.filter_by(stage='Won').count()
-    lost = Deal.query.filter_by(stage='Lost').count()
-    in_progress = Deal.query.filter(Deal.stage.notin_(['Won', 'Lost'])).count()
+    won = Deal.query.filter_by(stage='Won', is_deleted=False).count()
+    lost = Deal.query.filter_by(stage='Lost', is_deleted=False).count()
+    in_progress = Deal.query.filter(Deal.stage.notin_(['Won', 'Lost']), Deal.is_deleted == False).count()
 
     return jsonify({
         "won": won,
@@ -689,7 +695,7 @@ def dashboard_win_loss(current_user):
 def dashboard_win_reasons(current_user):
     # Group by win_reason string
     results = db.session.query(Deal.win_reason, func.count(Deal.id))\
-        .filter(Deal.stage == 'Won', Deal.win_reason.isnot(None), Deal.win_reason != "")\
+        .filter(Deal.stage == 'Won', Deal.win_reason.isnot(None), Deal.win_reason != "", Deal.is_deleted == False)\
         .group_by(Deal.win_reason).all()
     
     return jsonify([{"label": r[0], "value": r[1]} for r in results])
@@ -699,7 +705,7 @@ def dashboard_win_reasons(current_user):
 def dashboard_loss_reasons(current_user):
     # Group by loss_reason string
     results = db.session.query(Deal.loss_reason, func.count(Deal.id))\
-        .filter(Deal.stage == 'Lost', Deal.loss_reason.isnot(None), Deal.loss_reason != "")\
+        .filter(Deal.stage == 'Lost', Deal.loss_reason.isnot(None), Deal.loss_reason != "", Deal.is_deleted == False)\
         .group_by(Deal.loss_reason).all()
     
     return jsonify([{"label": r[0], "value": r[1]} for r in results])
@@ -712,13 +718,14 @@ def dashboard_forecast(current_user):
     current_year = today.year
 
     # 1. Total Pipeline (Value of Open Deals)
-    total_pipeline = db.session.query(func.sum(Deal.value)).filter(Deal.stage.notin_(['Won', 'Lost'])).scalar() or 0
+    total_pipeline = db.session.query(func.sum(Deal.value)).filter(Deal.stage.notin_(['Won', 'Lost']), Deal.is_deleted == False).scalar() or 0
 
     # 2. Closing This Month (Open deals with close_date in current month)
     # Note: SQLite extract syntax might differ, but SQLAlchemy usually handles it.
     # For SQLite, we might need to filter by date range if extract fails, but let's try standard SA first.
     closing_deals_query = Deal.query.filter(
         Deal.stage.notin_(['Won', 'Lost']),
+        Deal.is_deleted == False,
         extract('month', Deal.close_date) == current_month,
         extract('year', Deal.close_date) == current_year
     )
@@ -729,6 +736,7 @@ def dashboard_forecast(current_user):
     # In a real CRM, this would be weighted by probability. Here we sum the value.
     expected_revenue = db.session.query(func.sum(Deal.value)).filter(
         Deal.stage.notin_(['Won', 'Lost']),
+        Deal.is_deleted == False,
         extract('month', Deal.close_date) == current_month,
         extract('year', Deal.close_date) == current_year
     ).scalar() or 0
@@ -745,7 +753,7 @@ def dashboard_forecast(current_user):
 @token_required
 def get_dashboard_summary_widget(current_user):
     # 1. Total Leads
-    total_leads = Lead.query.count()
+    total_leads = Lead.query.filter_by(is_deleted=False).count()
     
     # 2. Lead Growth (This Month vs Last Month)
     today = datetime.utcnow()
@@ -753,18 +761,18 @@ def get_dashboard_summary_widget(current_user):
     last_month_end = first_day_this_month - timedelta(days=1)
     first_day_last_month = last_month_end.replace(day=1)
     
-    leads_this_month = Lead.query.filter(Lead.created_at >= first_day_this_month).count()
-    leads_last_month = Lead.query.filter(Lead.created_at >= first_day_last_month, Lead.created_at <= last_month_end).count()
+    leads_this_month = Lead.query.filter(Lead.created_at >= first_day_this_month, Lead.is_deleted == False).count()
+    leads_last_month = Lead.query.filter(Lead.created_at >= first_day_last_month, Lead.created_at <= last_month_end, Lead.is_deleted == False).count()
     
     lead_growth = 0
     if leads_last_month > 0:
         lead_growth = round(((leads_this_month - leads_last_month) / leads_last_month) * 100)
     
     # 3. Active Deals (Not Won/Lost)
-    active_deals = Deal.query.filter(func.lower(Deal.stage).notin_(['won', 'closed won', 'lost', 'closed lost'])).count()
+    active_deals = Deal.query.filter(func.lower(Deal.stage).notin_(['won', 'closed won', 'lost', 'closed lost']), Deal.is_deleted == False).count()
     
     # 4. In-progress Deals (Same as active for now, or specific stages like Negotiation)
-    in_progress_deals = Deal.query.filter(Deal.stage.in_(['Negotiation', 'Proposal'])).count()
+    in_progress_deals = Deal.query.filter(Deal.stage.in_(['Negotiation', 'Proposal']), Deal.is_deleted == False).count()
     
     # 5. Quarter Revenue (Sum of Won deals in current quarter)
     current_quarter = (today.month - 1) // 3 + 1
@@ -773,7 +781,8 @@ def get_dashboard_summary_widget(current_user):
     
     quarter_revenue = db.session.query(func.sum(Deal.value)).filter(
         func.lower(Deal.stage).in_(['won', 'closed won']),
-        Deal.created_at >= quarter_start_date # Using created_at as proxy for close_date if close_date is string/null
+        Deal.created_at >= quarter_start_date, # Using created_at as proxy for close_date if close_date is string/null
+        Deal.is_deleted == False
     ).scalar() or 0
     
     # 6. Tasks Due (Pending tasks due today or in future)
@@ -804,7 +813,8 @@ def get_revenue_growth(current_user):
         func.sum(Deal.value)
     ).filter(
         func.lower(Deal.stage).in_(['won', 'closed won']),
-        Deal.close_date.isnot(None)
+        Deal.close_date.isnot(None),
+        Deal.is_deleted == False
     ).group_by('month_num').order_by('month_num').all()
     
     data = []

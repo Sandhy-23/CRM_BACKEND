@@ -90,6 +90,6 @@ def whatsapp_webhook():
             
     except Exception as e:
         print(f"Webhook Error: {e}")
-        return jsonify({'status': 'error'}), 500
+        return jsonify({'status': 'error', 'message': str(e)}), 200
     
     return jsonify({'status': 'ignored'}), 200

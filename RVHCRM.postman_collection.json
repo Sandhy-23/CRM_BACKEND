@@ -2568,6 +2568,760 @@
 					"response": []
 				}
 			]
+		},
+		{
+			"name": "16. Campaigns",
+			"item": [
+				{
+					"name": "Get Campaigns",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/campaigns?status=Draft&channel=email",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"campaigns"
+							],
+							"query": [
+								{
+									"key": "status",
+									"value": "Draft",
+									"description": "Filter by status (Draft, Scheduled, Running, Completed, Paused)"
+								},
+								{
+									"key": "channel",
+									"value": "email",
+									"description": "Filter by channel (email, whatsapp, social)"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Campaign (Email)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"if (jsonData.campaign_id) {",
+									"    pm.environment.set(\"campaign_id\", jsonData.campaign_id);",
+									"    console.log(\"Campaign ID set:\", jsonData.campaign_id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Q1 Product Launch\",\n  \"channel\": \"email\",\n  \"config\": {\n    \"subject\": \"Big News!\",\n    \"body\": \"We are launching...\",\n    \"audience\": \"all\"\n  },\n  \"scheduled_at\": \"2026-03-01T10:00:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/campaigns",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"campaigns"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Campaign (Schedule)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"Scheduled\",\n  \"scheduled_at\": \"2026-03-01T10:00:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/campaigns/{{campaign_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"campaigns",
+								"{{campaign_id}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Campaign Metrics",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/campaigns/{{campaign_id}}/metrics",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"campaigns",
+								"{{campaign_id}}",
+								"metrics"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Upload Asset (Social)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": []
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/campaigns/upload-asset",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"campaigns",
+								"upload-asset"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Campaign",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/campaigns/{{campaign_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"campaigns",
+								"{{campaign_id}}"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "17. Calls",
+			"item": [
+				{
+					"name": "Get All Calls",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/calls",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"calls"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Log Call",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"John Doe\",\n  \"phone\": \"+1234567890\",\n  \"status\": \"Connected\",\n  \"duration\": 120,\n  \"notes\": \"Discussed pricing for the Enterprise plan.\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/calls",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"calls"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "18. Drip Campaigns",
+			"item": [
+				{
+					"name": "Get All Drip Campaigns",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/drip-campaigns",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"drip-campaigns"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Drip Campaign",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Welcome Series\",\n  \"audience_type\": \"new_leads\",\n  \"audience_value\": null\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/drip-campaigns",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"drip-campaigns"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Add Drip Step",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"subject\": \"Welcome to our service!\",\n  \"body\": \"Thanks for signing up...\",\n  \"delay_days\": 2\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/drip-campaigns/{{drip_id}}/steps",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"drip-campaigns",
+								"{{drip_id}}",
+								"steps"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Drip Steps",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/drip-campaigns/{{drip_id}}/steps",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"drip-campaigns",
+								"{{drip_id}}",
+								"steps"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Activate Drip Campaign",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/drip-campaigns/{{drip_id}}/activate",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"drip-campaigns",
+								"{{drip_id}}",
+								"activate"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Pause Drip Campaign",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/drip-campaigns/{{drip_id}}/pause",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"drip-campaigns",
+								"{{drip_id}}",
+								"pause"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "19. Landing Pages",
+			"item": [
+				{
+					"name": "Create Landing Page",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Summer Sale\",\n  \"slug\": \"summer-sale-2026\",\n  \"is_published\": true,\n  \"form_fields\": [\n    {\"name\": \"email\", \"type\": \"email\", \"label\": \"Email Address\"},\n    {\"name\": \"phone\", \"type\": \"tel\", \"label\": \"Phone Number\"}\n  ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/landing-pages",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "landing-pages" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Landing Pages",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/landing-pages",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "landing-pages" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Public View Page",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/lp/summer-sale-2026",
+							"host": [ "{{base_url}}" ],
+							"path": [ "lp", "summer-sale-2026" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Submit Form",
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"form_id\": 1,\n  \"data\": {\n    \"email\": \"lead@example.com\",\n    \"phone\": \"1234567890\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/form-submit",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "form-submit" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Track View",
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"page_id\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/landing/track-view",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "landing", "track-view" ]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "20. Marketing Analytics",
+			"item": [
+				{
+					"name": "Get Stats",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/marketing/stats",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "marketing", "stats" ]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "21. Team Management",
+			"item": [
+				{
+					"name": "Get Branch Team",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/branches/1/team",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "branches", "1", "team" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Invite Member",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"newagent@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/branches/1/invite",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "branches", "1", "invite" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Member Role",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "PATCH",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"role\": \"Manager\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/team/2",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "team", "2" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Heartbeat",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/heartbeat",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "heartbeat" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Campaign Logs",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/campaigns/{{campaign_id}}/logs",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "campaigns", "{{campaign_id}}", "logs" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Activate Campaign (POST)",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/campaigns/{{campaign_id}}/activate",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "campaigns", "{{campaign_id}}", "activate" ]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "22. WhatsApp Marketing",
+			"item": [
+				{
+					"name": "Create WhatsApp Campaign",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"WhatsApp Promo\",\n  \"channel\": \"whatsapp\",\n  \"config\": {\n    \"messageType\": \"Broadcast\",\n    \"audience\": \"all\",\n    \"message\": \"Hi {{name}}, special offer!\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/campaigns",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "campaigns" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Activate Campaign",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "PUT",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"Running\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/campaigns/{{campaign_id}}",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "campaigns", "{{campaign_id}}" ]
+						}
+					},
+					"response": []
+				}
+			]
 		}
 	],
 	"variable": [

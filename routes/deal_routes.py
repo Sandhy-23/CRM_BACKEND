@@ -14,7 +14,7 @@ def get_deal_query(current_user):
     Returns the base query for deals.
     (Auth is handled by @token_required, RBAC is removed for now).
     """
-    return Deal.query
+    return Deal.query.filter((Deal.is_deleted == False) | (Deal.is_deleted.is_(None)))
 
 ALLOWED_PIPELINES = ["Deals", "Sales", "Partnership", "Enterprise"]
 ALLOWED_STAGES = ["Proposal", "Negotiation", "Won", "Lost"]
@@ -189,7 +189,9 @@ def delete_deal(current_user, deal_id):
     if not deal:
         return jsonify({'message': f'Deal with ID {deal_id} not found.'}), 404
 
-    db.session.delete(deal)
+    deal.is_deleted = True
+    deal.deleted_at = datetime.utcnow()
+    
     db.session.commit()
     log_activity("deal", "deleted", f"Deal '{deal.title}' was deleted.", deal.id)
     return jsonify({'message': 'Deal deleted successfully'}), 200

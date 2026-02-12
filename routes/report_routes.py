@@ -13,20 +13,20 @@ report_bp = Blueprint('reports', __name__)
 @token_required
 def get_reports_summary(current_user):
     # Total Leads
-    total_leads = Lead.query.count()
+    total_leads = Lead.query.filter_by(is_deleted=False).count()
     
     # Active Deals (Assuming 'Proposal' and 'Negotiation' are active stages based on previous context, 
     # or strictly 'active' if status column was migrated. Using stage logic for consistency with Deal model)
     # The prompt asks for status='active', but Deal model uses 'stage'. 
     # Mapping: Active = Not Won/Lost.
-    active_deals = Deal.query.filter(Deal.stage.notin_(['Won', 'Lost'])).count()
+    active_deals = Deal.query.filter(Deal.stage.notin_(['Won', 'Lost']), Deal.is_deleted == False).count()
     
     # Revenue (Sum of value of Won deals)
-    revenue = db.session.query(func.sum(Deal.value)).filter(Deal.stage == 'Won').scalar() or 0
+    revenue = db.session.query(func.sum(Deal.value)).filter(Deal.stage == 'Won', Deal.is_deleted == False).scalar() or 0
     
     # Conversion Rate (Converted Leads / Total Leads * 100)
     # Assuming 'Converted' status exists for Leads
-    converted_leads = Lead.query.filter_by(status='Converted').count()
+    converted_leads = Lead.query.filter_by(status='Converted', is_deleted=False).count()
     conversion_rate = round((converted_leads / total_leads * 100), 2) if total_leads > 0 else 0
 
     return jsonify({
@@ -52,7 +52,8 @@ def get_leads_trend(current_user):
         func.strftime('%Y-%m', Lead.created_at).label('month_year'),
         func.count(Lead.id)
     ).filter(
-        Lead.created_at >= six_months_ago
+        Lead.created_at >= six_months_ago,
+        Lead.is_deleted == False
     ).group_by(
         'month_year'
     ).order_by(
@@ -78,6 +79,8 @@ def get_lead_sources(current_user):
     results = db.session.query(
         Lead.source,
         func.count(Lead.id)
+    ).filter(
+        Lead.is_deleted == False
     ).group_by(
         Lead.source
     ).all()
@@ -93,9 +96,10 @@ def get_insights(current_user):
     
     # Insight 1: Top Source
     top_source = db.session.query(Lead.source, func.count(Lead.id))\
+        .filter(Lead.is_deleted == False)\
         .group_by(Lead.source).order_by(func.count(Lead.id).desc()).first()
         
-    total_leads = Lead.query.count()
+    total_leads = Lead.query.filter_by(is_deleted=False).count()
     
     if top_source and total_leads > 0:
         percentage = round((top_source[1] / total_leads * 100))
@@ -108,13 +112,13 @@ def get_insights(current_user):
     first_day_last_month = last_month_end.replace(day=1)
     
     # This Month
-    leads_this_month = Lead.query.filter(Lead.created_at >= first_day_this_month).count()
-    conv_this_month = Lead.query.filter(Lead.created_at >= first_day_this_month, Lead.status == 'Converted').count()
+    leads_this_month = Lead.query.filter(Lead.created_at >= first_day_this_month, Lead.is_deleted == False).count()
+    conv_this_month = Lead.query.filter(Lead.created_at >= first_day_this_month, Lead.status == 'Converted', Lead.is_deleted == False).count()
     rate_this_month = (conv_this_month / leads_this_month * 100) if leads_this_month > 0 else 0
     
     # Last Month
-    leads_last_month = Lead.query.filter(Lead.created_at >= first_day_last_month, Lead.created_at <= last_month_end).count()
-    conv_last_month = Lead.query.filter(Lead.created_at >= first_day_last_month, Lead.created_at <= last_month_end, Lead.status == 'Converted').count()
+    leads_last_month = Lead.query.filter(Lead.created_at >= first_day_last_month, Lead.created_at <= last_month_end, Lead.is_deleted == False).count()
+    conv_last_month = Lead.query.filter(Lead.created_at >= first_day_last_month, Lead.created_at <= last_month_end, Lead.status == 'Converted', Lead.is_deleted == False).count()
     rate_last_month = (conv_last_month / leads_last_month * 100) if leads_last_month > 0 else 0
     
     diff = rate_this_month - rate_last_month
@@ -131,7 +135,7 @@ def get_insights(current_user):
     
     # Check if total leads dropped recently
     two_weeks_ago = today - timedelta(days=14)
-    recent_leads = Lead.query.filter(Lead.created_at >= two_weeks_ago).count()
+    recent_leads = Lead.query.filter(Lead.created_at >= two_weeks_ago, Lead.is_deleted == False).count()
     if recent_leads < (total_leads / 12): # Rough heuristic
         insights.append("Lead generation slowed down slightly in the last 2 weeks.")
     else:
@@ -144,14 +148,14 @@ def get_insights(current_user):
 @token_required
 def get_top_win_reasons(current_user):
     # Get total won deals for the organization
-    total_won = Deal.query.filter_by(stage='Won', organization_id=current_user.organization_id).count()
+    total_won = Deal.query.filter_by(stage='Won', organization_id=current_user.organization_id, is_deleted=False).count()
 
     if total_won == 0:
         return jsonify([])
 
     # Get counts for each win reason
     results = db.session.query(Deal.win_reason, func.count(Deal.id))\
-        .filter(Deal.stage == 'Won', Deal.organization_id == current_user.organization_id, Deal.win_reason.isnot(None))\
+        .filter(Deal.stage == 'Won', Deal.organization_id == current_user.organization_id, Deal.win_reason.isnot(None), Deal.is_deleted == False)\
         .group_by(Deal.win_reason).all()
 
     response_data = []
@@ -167,13 +171,13 @@ def get_top_win_reasons(current_user):
 @token_required
 def get_top_loss_reasons(current_user):
     # Get total lost deals for the organization
-    total_lost = Deal.query.filter_by(stage='Lost', organization_id=current_user.organization_id).count()
+    total_lost = Deal.query.filter_by(stage='Lost', organization_id=current_user.organization_id, is_deleted=False).count()
 
     if total_lost == 0:
         return jsonify([])
 
     results = db.session.query(Deal.loss_reason, func.count(Deal.id))\
-        .filter(Deal.stage == 'Lost', Deal.organization_id == current_user.organization_id, Deal.loss_reason.isnot(None))\
+        .filter(Deal.stage == 'Lost', Deal.organization_id == current_user.organization_id, Deal.loss_reason.isnot(None), Deal.is_deleted == False)\
         .group_by(Deal.loss_reason).all()
 
     response_data = []

@@ -1,8 +1,9 @@
 from flask import Blueprint, request, jsonify
 from extensions import db
-from models.automation import Automation, AutomationRule, AutomationAction
+from models.automation import Automation, AutomationCondition, AutomationAction
 from routes.auth_routes import token_required
 import json
+import traceback
 
 automation_bp = Blueprint('automation', __name__)
 
@@ -17,46 +18,63 @@ def automation_test():
     return {"message": "Automation module working"}, 200
 
 # --- Automations CRUD ---
-@automation_bp.route('/automations', methods=['POST'])
-@token_required
-def create_automation(current_user):
+def create_automation(current_user): # Now a helper function
     if current_user.role not in ['SUPER_ADMIN', 'ADMIN']:
         return jsonify({'message': 'Unauthorized'}), 403
         
-    data = request.get_json()
-    
-    new_automation = Automation(
-        name=data.get('name', 'Untitled Automation'),
-        trigger_event=data.get('trigger_event'),
-        is_active=data.get('is_active', True),
-        company_id=current_user.organization_id
-    )
-    
     try:
+        data = request.get_json()
+        print(f"[DEBUG] /api/automation/rules Body: {data}")
+
+        new_automation = Automation(
+            name=data["name"],
+            trigger_event=data["trigger_event"],
+            branch_id=data["branch_id"],
+            organization_id=current_user.organization_id,
+            created_by=current_user.id,
+            status=data.get("status", "active")
+        )
+
         db.session.add(new_automation)
         db.session.flush() # Get ID
         
-        # Add Rules
-        for r in data.get('rules', []):
-            rule = AutomationRule(automation_id=new_automation.id, field=r['field'], operator=r['operator'], value=r['value'])
-            db.session.add(rule)
+        # Conditions
+        for cond in data.get("conditions", []):
+            db.session.add(
+                AutomationCondition(
+                    automation_id=new_automation.id,
+                    field=cond["field"],
+                    operator=cond["operator"],
+                    value=cond["value"]
+                )
+            )
             
-        # Add Actions
-        for a in data.get('actions', []):
-            action = AutomationAction(automation_id=new_automation.id, action_type=a['action_type'], action_value=a['action_value'])
-            db.session.add(action)
+        # Actions
+        for act in data.get("actions", []):
+            # Handle frontend sending 'action_type' or 'type'
+            act_type = act.get("type") or act.get("action_type")
+            
+            db.session.add(
+                AutomationAction(
+                    automation_id=new_automation.id,
+                    type=act_type,
+                    template_id=act.get("template_id"),
+                    delay_minutes=act.get("delay_minutes", 0)
+                )
+            )
             
         db.session.commit()
         return jsonify({'message': 'Automation created', 'automation': new_automation.to_dict()}), 201
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        print("❌ ERROR CREATING AUTOMATION:", str(e))
+        traceback.print_exc()
+        # Return 400 for validation/logic errors
+        return jsonify({"success": False, "message": "Failed"}), 400
 
-@automation_bp.route('/automations', methods=['GET'])
-@token_required
-def get_automations(current_user):
+def get_automations(current_user): # Now a helper function
     automations = Automation.query.filter_by(
-        company_id=current_user.organization_id
+        organization_id=current_user.organization_id
     ).all()
     
     return jsonify([a.to_dict() for a in automations]), 200
@@ -67,11 +85,22 @@ def toggle_rule(current_user, rule_id):
     if current_user.role not in ['SUPER_ADMIN', 'ADMIN']:
         return jsonify({'message': 'Unauthorized'}), 403
         
-    rule = AutomationRule.query.filter_by(id=rule_id, company_id=current_user.organization_id).first()
-    if not rule:
-        return jsonify({'message': 'Rule not found'}), 404
+    # Note: rule_id here refers to the Automation ID in the new structure
+    automation = Automation.query.filter_by(id=rule_id, organization_id=current_user.organization_id).first()
+    if not automation:
+        return jsonify({'message': 'Automation not found'}), 404
         
-    rule.is_active = not rule.is_active
+    automation.status = 'paused' if automation.status == 'active' else 'active'
     db.session.commit()
     
-    return jsonify({'message': f'Rule {"enabled" if rule.is_active else "disabled"}', 'is_active': rule.is_active}), 200
+    return jsonify({'message': f'Automation {automation.status}', 'status': automation.status}), 200
+
+@automation_bp.route('/automation/rules', methods=['GET', 'POST'])
+@token_required
+def automation_rules(current_user):
+    """
+    Alias endpoint for /automations to match frontend expectations.
+    """
+    if request.method == 'POST':
+        return create_automation(current_user)
+    return get_automations(current_user)
