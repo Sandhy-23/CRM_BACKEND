@@ -87,7 +87,7 @@ def process_contact_import(df, current_user):
 
 def process_lead_import(df, current_user):
     """Handles the logic for importing leads."""
-    required_columns = ['name', 'company']
+    required_columns = ['name']
     if not all(col in df.columns for col in required_columns):
         missing = [col for col in required_columns if col not in df.columns]
         return jsonify({'error': 'File Processing Error', 'message': f'Missing required columns: {", ".join(missing)}'}), 400
@@ -99,14 +99,9 @@ def process_lead_import(df, current_user):
         row_num = index + 2
         email = str(row.get('email', '')).strip()
         name = str(row.get('name', '')).strip()
-        company = str(row.get('company', '')).strip()
 
         if not name:
             errors.append({'row': row_num, 'reason': 'Missing name'})
-            failed_count += 1
-            continue
-        if not company:
-            errors.append({'row': row_num, 'reason': 'Missing company'})
             failed_count += 1
             continue
         if email and email in existing_emails:
@@ -120,7 +115,6 @@ def process_lead_import(df, current_user):
             # The system now auto-assigns users and teams upon API creation, but not for imports.
             new_lead = Lead(
                 name=name,
-                company=company,
                 email=email if email else None,
                 phone=str(row.get('phone', '')).strip(),
                 source=str(row.get('source', 'Import')).strip(),
@@ -208,7 +202,7 @@ def export_data(current_user, module):
             # Updated data dictionary to match the new Lead model schema
             data = [{
                 "id": l.id, "name": l.name,
-                "company": l.company, "email": l.email, "phone": l.phone,
+                "email": l.email, "phone": l.phone,
                 "status": l.status, "source": l.source,
                 "city": l.city,
                 "state": l.state,
