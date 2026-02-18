@@ -29,7 +29,6 @@ def get_leads(current_user):
             "name": lead.name,
             "phone": lead.phone,
             "email": lead.email,
-            "company": lead.company,
             "city": lead.city,
             "state": lead.state,
             "country": lead.country,
@@ -78,7 +77,6 @@ def create_lead(current_user):
         name=data["name"],
         phone=data["phone"],
         email=data.get("email"),
-        company=data.get("company"),
         source=data.get("source", "Manual"),
         status=data.get("status", "New"),
         city=city,
@@ -140,12 +138,10 @@ def update_lead(current_user, lead_id):
     lead.name = data.get("name", lead.name)
     lead.email = data.get("email", lead.email)
     lead.phone = data.get("phone", lead.phone)
-    lead.company = data.get("company", lead.company)
     lead.source = data.get("source", lead.source)
     lead.status = data.get("status", lead.status)
     lead.score = data.get("score", lead.score)
     lead.sla = data.get("sla", lead.sla)
-    lead.description = data.get("description", lead.description)
 
     db.session.commit()
 

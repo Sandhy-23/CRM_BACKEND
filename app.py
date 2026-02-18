@@ -26,6 +26,8 @@ from routes.marketing_analytics_routes import marketing_analytics_bp
 from routes.team_management_routes import team_management_bp
 from routes.automation_routes import automation_bp
 from drip_routes import drip_bp
+from routes.sla_rule_routes import sla_rule_bp
+from routes.ticket_routes import ticket_bp
 from config import Config
 from models.crm import Deal
 import models
@@ -58,6 +60,7 @@ CORS(
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 )
 app.config.from_object(Config)
+print("DATABASE URI:", app.config['SQLALCHEMY_DATABASE_URI'])
 socketio = SocketIO(app, cors_allowed_origins="*")
 print(f"[OK] Database URI: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
 
@@ -126,6 +129,8 @@ app.register_blueprint(call_bp)
 app.register_blueprint(landing_page_bp)
 app.register_blueprint(marketing_analytics_bp)
 app.register_blueprint(team_management_bp)
+app.register_blueprint(sla_rule_bp)
+app.register_blueprint(ticket_bp, url_prefix="/api/tickets")
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):

@@ -25,15 +25,10 @@
 							"raw": "{\n    \"name\": \"Super Admin\",\n    \"email\": \"super@example.com\",\n    \"password\": \"supersecret\"\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/auth/signup",
-							"protocol": "http",
+							"raw": "{{base_url}}/auth/signup",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"auth",
 								"signup"
@@ -55,10 +50,8 @@
 							"raw": "{\n    \"email\": \"super@example.com\",\n    \"otp\": \"123456\"\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/auth/verify-otp",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
+							"raw": "{{base_url}}/auth/verify-otp",
+							"host": [ "{{base_url}}" ],
 							"path": [
 								"auth",
 								"verify-otp"
@@ -105,15 +98,10 @@
 							"raw": "{\n    \"email\": \"super@example.com\",\n    \"password\": \"supersecret\"\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/auth/login",
-							"protocol": "http",
+							"raw": "{{base_url}}/auth/login",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"auth",
 								"login"
@@ -149,15 +137,10 @@
 							"raw": "{\n  \"organization_name\": \"RVH Technologies\",\n  \"organization_size\": \"11-50\",\n  \"industry\": \"IT / Software\",\n  \"phone\": \"9876543210\",\n  \"country\": \"India\",\n  \"state\": \"Telangana\",\n  \"city_or_branch\": \"Hyderabad\"\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/organization/setup",
-							"protocol": "http",
+							"raw": "{{base_url}}/api/organization/setup",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"api",
 								"organization",
@@ -194,15 +177,10 @@
 							"raw": "{\n    \"name\": \"Sandhya\",\n    \"email\": \"sandhyarani23@gmail.com\",\n    \"password\": \"sandhya23\",\n    \"role\": \"Admin\"\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/users",
-							"protocol": "http",
+							"raw": "{{base_url}}/api/users",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"api",
 								"users"
@@ -228,15 +206,10 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://127.0.0.1:5000{{dashboard_url}}",
-							"protocol": "http",
+							"raw": "{{base_url}}{{dashboard_url}}",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"{{dashboard_url}}"
 							]
@@ -270,15 +243,10 @@
 							"raw": "{\n    \"name\": \"Gold\",\n    \"price\": \"$99/mo\",\n    \"user_limit\": 100,\n    \"description\": \"Premium plan\"\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/plans",
-							"protocol": "http",
+							"raw": "{{base_url}}/api/plans",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"api",
 								"plans"
@@ -303,15 +271,10 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/dashboard/kpis?period=all",
-							"protocol": "http",
+							"raw": "{{base_url}}/api/dashboard/kpis?period=all",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"api",
 								"dashboard",
@@ -354,10 +317,8 @@
 							"raw": "{\n    \"email\": \"super@example.com\"\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/auth/forgot-password",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
+							"raw": "{{base_url}}/auth/forgot-password",
+							"host": [ "{{base_url}}" ],
 							"path": [
 								"auth",
 								"forgot-password"
@@ -393,15 +354,10 @@
 							"raw": "{\n    \"otp\": \"PASTE_OTP_HERE\"\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/auth/verify-reset-otp",
-							"protocol": "http",
+							"raw": "{{base_url}}/auth/verify-reset-otp",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [ "auth", "verify-reset-otp" ]
 						}
 					},
@@ -420,10 +376,8 @@
 							"raw": "{\n    \"new_password\": \"newsecurepassword123\",\n    \"confirm_password\": \"newsecurepassword123\"\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/auth/reset-password",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
+							"raw": "{{base_url}}/auth/reset-password",
+							"host": [ "{{base_url}}" ],
 							"path": [
 								"auth",
 								"reset-password"
@@ -454,15 +408,10 @@
 							"raw": "{\n    \"email\": \"sandhyarani23@gmail.com\",\n    \"password\": \"sandhya23\"\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/auth/login",
-							"protocol": "http",
+							"raw": "{{base_url}}/auth/login",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"auth",
 								"login"
@@ -488,15 +437,10 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/crm/admin/dashboard",
-							"protocol": "http",
+							"raw": "{{base_url}}/api/crm/admin/dashboard",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"api",
 								"crm",
@@ -533,15 +477,10 @@
 							"raw": "{\n    \"name\": \"Bob Employee\",\n    \"email\": \"bob@example.com\",\n    \"password\": \"securepassword\",\n    \"role\": \"Employee\",\n    \"department\": \"Sales\",\n    \"designation\": \"Associate\"\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/users",
-							"protocol": "http",
+							"raw": "{{base_url}}/api/users",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"api",
 								"users"
@@ -567,15 +506,10 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/employees",
-							"protocol": "http",
+							"raw": "{{base_url}}/api/employees",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"api",
 								"employees"
@@ -610,15 +544,10 @@
 							"raw": "{\n    \"title\": \"Urgent Follow-up\",\n    \"description\": \"Call client X\",\n    \"assigned_to\": 3\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/quick-actions/task",
-							"protocol": "http",
+							"raw": "{{base_url}}/api/quick-actions/task",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"api",
 								"quick-actions",
@@ -649,15 +578,10 @@
 							"raw": "{\n    \"email\": \"bob@example.com\",\n    \"password\": \"securepassword\"\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/auth/login",
-							"protocol": "http",
+							"raw": "{{base_url}}/auth/login",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"auth",
 								"login"
@@ -682,15 +606,10 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/crm/user/dashboard",
-							"protocol": "http",
+							"raw": "{{base_url}}/api/crm/user/dashboard",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"api",
 								"crm",
@@ -717,15 +636,10 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/tasks",
-							"protocol": "http",
+							"raw": "{{base_url}}/api/tasks",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"api",
 								"tasks"
@@ -750,15 +664,10 @@
 						"method": "PUT",
 						"header": [],
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/quick-actions/task/1/complete",
-							"protocol": "http",
+							"raw": "{{base_url}}/api/quick-actions/task/1/complete",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"api",
 								"quick-actions",
@@ -781,15 +690,10 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://127.0.0.1:5000/",
-							"protocol": "http",
+							"raw": "{{base_url}}/",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								""
 							]
@@ -803,15 +707,10 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/plans",
-							"protocol": "http",
+							"raw": "{{base_url}}/api/plans",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"api",
 								"plans"
@@ -836,15 +735,10 @@
 							"raw": "{\n    \"name\": \"Visitor\",\n    \"email\": \"visitor@example.com\",\n    \"message\": \"Interested in CRM\"\n}"
 						},
 						"url": {
-							"raw": "http://127.0.0.1:5000/contact",
-							"protocol": "http",
+							"raw": "{{base_url}}/contact",
 							"host": [
-								"127",
-								"0",
-								"0",
-								"1"
+								"{{base_url}}"
 							],
-							"port": "5000",
 							"path": [
 								"contact"
 							]
@@ -977,10 +871,8 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/leads",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
+							"raw": "{{base_url}}/api/leads",
+							"host": [ "{{base_url}}" ],
 							"path": [ "api", "leads" ]
 						}
 					},
@@ -1039,10 +931,8 @@
 						"method": "POST",
 						"header": [],
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/leads/1/convert",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
+							"raw": "{{base_url}}/api/leads/1/convert",
+							"host": [ "{{base_url}}" ],
 							"path": [ "api", "leads", "1", "convert" ]
 						}
 					},
@@ -1580,10 +1470,8 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/dashboard/leads-summary",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
+							"raw": "{{base_url}}/api/dashboard/leads-summary",
+							"host": [ "{{base_url}}" ],
 							"path": [ "api", "dashboard", "leads-summary" ]
 						}
 					},
@@ -1596,10 +1484,8 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://127.0.0.1:5000/api/dashboard/deals-pipeline",
-							"protocol": "http",
-							"host": [ "127", "0", "0", "1" ],
-							"port": "5000",
+							"raw": "{{base_url}}/api/dashboard/deals-pipeline",
+							"host": [ "{{base_url}}" ],
 							"path": [ "api", "dashboard", "deals-pipeline" ]
 						}
 					},
@@ -3317,6 +3203,150 @@
 							"raw": "{{base_url}}/api/campaigns/{{campaign_id}}",
 							"host": [ "{{base_url}}" ],
 							"path": [ "api", "campaigns", "{{campaign_id}}" ]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "23. Support Tickets",
+			"item": [
+				{
+					"name": "Create Ticket",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"subject\": \"Payment Issue\",\n  \"description\": \"Customer cannot process payment\",\n  \"priority\": \"High\",\n  \"category\": \"Billing\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/tickets",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "tickets" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Tickets",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/tickets",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "tickets" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Ticket",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "PUT",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"Closed\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/tickets/1",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "tickets", "1" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Add Comment",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"comment\": \"Issue resolved.\",\n  \"is_internal\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/tickets/1/comment",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "tickets", "1", "comment" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Breached Tickets",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/tickets/sla/breached",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "tickets", "sla", "breached" ]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "24. SLA Rules",
+			"item": [
+				{
+					"name": "Create SLA Rule",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"priority\": \"High\",\n  \"response_time_hours\": 1,\n  \"resolution_time_hours\": 4\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/sla-rules",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"sla-rules"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get SLA Rules",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sla-rules",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "sla-rules" ]
 						}
 					},
 					"response": []

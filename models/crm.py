@@ -7,7 +7,7 @@ class Lead(db.Model):
     name = db.Column(db.String(100))
     email = db.Column(db.String(120))
     phone = db.Column(db.String(20))
-    company = db.Column(db.String(100))
+    # company = db.Column(db.String(100)) # Temporarily disabled
     city = db.Column(db.String(100))
     state = db.Column(db.String(100))
     country = db.Column(db.String(100))
@@ -15,7 +15,7 @@ class Lead(db.Model):
     source = db.Column(db.String(50)) # website / orbit / whatsapp
     score = db.Column(db.String(20))
     sla = db.Column(db.String(20))
-    description = db.Column(db.Text)
+    # description = db.Column(db.Text) # Temporarily disabled
     assigned_team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
     assigned_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'), nullable=True)
@@ -51,13 +51,4 @@ class Activity(db.Model):
     status = db.Column(db.String(50))
     user_id = db.Column(db.Integer)
     organization_id = db.Column(db.Integer)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-class Ticket(db.Model):
-    __tablename__ = "tickets"
-
-    id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(255))
-    description = db.Column(db.Text)
-    status = db.Column(db.String(50), default="open")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
