@@ -7,7 +7,7 @@ from flask import Flask, jsonify, g, request, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO
 from flask_migrate import Migrate
-from extensions import db, jwt
+from extensions import db, jwt, mail
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 from routes import auth_bp, social_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp, lead_bp, deal_bp, note_file_bp, calendar_bp, activity_bp, inbox_bp, webhook_bp, channel_bp, message_bp, conversation_bp
@@ -48,6 +48,7 @@ import models.call # Register Call Model
 import models.campaign_log # Register Campaign Log Model
 import models.whatsapp_log
 import models.landing_page
+import models.payment # Register Payment Model
 
 load_dotenv()
 
@@ -95,6 +96,7 @@ def load_user_context_from_token():
 
 db.init_app(app)
 jwt.init_app(app)
+mail.init_app(app)
 migrate = Migrate(app, db)
 
 app.register_blueprint(auth_bp, url_prefix="/auth")

@@ -7,7 +7,7 @@ class Lead(db.Model):
     name = db.Column(db.String(100))
     email = db.Column(db.String(120))
     phone = db.Column(db.String(20))
-    # company = db.Column(db.String(100)) # Temporarily disabled
+    company = db.Column(db.String(150))
     city = db.Column(db.String(100))
     state = db.Column(db.String(100))
     country = db.Column(db.String(100))

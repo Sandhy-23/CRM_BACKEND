@@ -9,3 +9,5 @@ from .whatsapp_log import WhatsAppCampaignLog
 from .landing_page import LandingPage, LandingPageForm, FormSubmission, LandingPageEvent
 from .ticket import Ticket, TicketComment
 from .sla_rule import SLARule
+
+from .payment import Payment

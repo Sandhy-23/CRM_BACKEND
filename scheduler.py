@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from extensions import db
 from drip_campaign import DripEnrollment, DripStep
-from email_service import send_email
+from services.email_service import send_email
 
 def process_drip_emails():
     """

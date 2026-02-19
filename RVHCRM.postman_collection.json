@@ -3510,6 +3510,87 @@
 					"response": []
 				}
 			]
+		},
+		{
+			"name": "26. Payment Automation",
+			"item": [
+				{
+					"name": "1. Login (Get Token)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"if (jsonData.token) {",
+									"    pm.environment.set(\"token\", jsonData.token);",
+									"    console.log(\"Token set:\", jsonData.token);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"super@example.com\",\n  \"password\": \"supersecret\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"login"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "2. Get Leads (Find ID)",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/leads",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "leads" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "3. Convert Lead (Trigger Payment)",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "PUT",
+						"header": [ { "key": "Content-Type", "value": "application/json", "type": "text" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"Converted\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/leads/1",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "leads", "1" ]
+						},
+						"description": "Updates lead status to 'Converted', triggering payment link creation and email."
+					},
+					"response": []
+				}
+			]
 		}
 	],
 	"variable": [
