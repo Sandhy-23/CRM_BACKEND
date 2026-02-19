@@ -556,6 +556,44 @@
 						}
 					},
 					"response": []
+				},
+				{
+					"name": "Create SLA Rule",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"priority\": \"High\",\n  \"response_time_hours\": 1,\n  \"resolution_time_hours\": 4\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/sla-rules",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"sla-rules"
+							]
+						}
+					},
+					"response": []
 				}
 			]
 		},
@@ -675,6 +713,20 @@
 								"1",
 								"complete"
 							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get SLA Rules",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sla-rules",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "sla-rules" ]
 						}
 					},
 					"response": []
@@ -3347,6 +3399,112 @@
 							"raw": "{{base_url}}/api/sla-rules",
 							"host": [ "{{base_url}}" ],
 							"path": [ "api", "sla-rules" ]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "25. Analytics",
+			"item": [
+				{
+					"name": "Get Revenue Analytics",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/analytics/revenue",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"analytics",
+								"revenue"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Pipeline Analytics",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/analytics/pipeline",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"analytics",
+								"pipeline"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Leads Analytics",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/analytics/leads",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"analytics",
+								"leads"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get KPI Analytics",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/analytics/kpi",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "analytics", "kpi" ]
 						}
 					},
 					"response": []

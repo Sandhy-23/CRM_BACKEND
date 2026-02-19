@@ -15,7 +15,6 @@ from routes.campaign_routes import campaign_bp
 from routes.import_export_routes import import_export_bp
 from routes.chart_routes import chart_bp
 from routes.organization_routes import organization_bp
-from routes.analytics_routes import analytics_bp
 from routes.pipeline_routes import pipeline_bp
 from routes.task_routes import task_bp
 from routes.report_routes import report_bp
@@ -28,6 +27,7 @@ from routes.automation_routes import automation_bp
 from drip_routes import drip_bp
 from routes.sla_rule_routes import sla_rule_bp
 from routes.ticket_routes import ticket_bp
+from analytics_routes import analytics_bp
 from config import Config
 from models.crm import Deal
 import models
@@ -110,7 +110,6 @@ app.register_blueprint(deal_bp)
 app.register_blueprint(import_export_bp, url_prefix="/api")
 app.register_blueprint(note_file_bp)
 app.register_blueprint(organization_bp, url_prefix="/api")
-app.register_blueprint(analytics_bp)
 app.register_blueprint(pipeline_bp, url_prefix="/api")
 app.register_blueprint(task_bp)
 app.register_blueprint(calendar_bp, url_prefix="/api")
@@ -131,6 +130,7 @@ app.register_blueprint(marketing_analytics_bp)
 app.register_blueprint(team_management_bp)
 app.register_blueprint(sla_rule_bp)
 app.register_blueprint(ticket_bp, url_prefix="/api/tickets")
+app.register_blueprint(analytics_bp)
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):
