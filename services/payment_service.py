@@ -1,6 +1,8 @@
 import razorpay
 import os
 
+print("Loaded Razorpay Key:", os.getenv("RAZORPAY_KEY_ID"))
+
 client = razorpay.Client(
     auth=(os.getenv("RAZORPAY_KEY_ID"), os.getenv("RAZORPAY_KEY_SECRET"))
 )

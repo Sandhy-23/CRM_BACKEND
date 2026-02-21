@@ -1,5 +1,8 @@
 import sys
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -17,7 +20,7 @@ from routes.chart_routes import chart_bp
 from routes.organization_routes import organization_bp
 from routes.pipeline_routes import pipeline_bp
 from routes.task_routes import task_bp
-from routes.report_routes import report_bp
+# from routes.report_routes import report_bp
 from routes.team_routes import team_bp
 from routes.call_routes import call_bp
 from routes.landing_page_routes import landing_page_bp
@@ -27,6 +30,8 @@ from routes.automation_routes import automation_bp
 from drip_routes import drip_bp
 from routes.sla_rule_routes import sla_rule_bp
 from routes.ticket_routes import ticket_bp
+from routes.reports import reports_bp
+from routes.chat import chat_bp
 from analytics_routes import analytics_bp
 from config import Config
 from models.crm import Deal
@@ -34,7 +39,6 @@ import models
 from flask_jwt_extended import get_jwt, verify_jwt_in_request
 from models.calendar_event import CalendarEvent
 from models.reminder import Reminder
-from dotenv import load_dotenv
 from models.team import Team, LocationTeamMapping
 from scheduler import process_drip_emails
 from services.scheduler_instance import scheduler # Import global scheduler
@@ -50,7 +54,6 @@ import models.whatsapp_log
 import models.landing_page
 import models.payment # Register Payment Model
 
-load_dotenv()
 
 
 app = Flask(__name__)
@@ -117,7 +120,9 @@ app.register_blueprint(task_bp)
 app.register_blueprint(calendar_bp, url_prefix="/api")
 app.register_blueprint(activity_bp, url_prefix="/api")
 app.register_blueprint(automation_bp, url_prefix="/api")
-app.register_blueprint(report_bp)
+# app.register_blueprint(report_bp)
+app.register_blueprint(reports_bp, url_prefix="/api/reports")
+app.register_blueprint(chat_bp, url_prefix="/api/chat")
 app.register_blueprint(inbox_bp)
 app.register_blueprint(webhook_bp)
 app.register_blueprint(channel_bp)

@@ -3591,6 +3591,149 @@
 					"response": []
 				}
 			]
+		},
+		{
+			"name": "27. Reports (New)",
+			"item": [
+				{
+					"name": "1. Executive Summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/reports/summary",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "reports", "summary" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "2. Lead Report",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/reports/leads",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "reports", "leads" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "3. Sales Metrics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/reports/sales",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "reports", "sales" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "4. Sales Reps",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/reports/reps",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "reports", "reps" ]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "5. Pipeline Overview",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/reports/pipeline",
+							"host": [ "{{base_url}}" ],
+							"path": [ "api", "reports", "pipeline" ]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "28. Chat Assistant",
+			"item": [
+				{
+					"name": "Send Message",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"message\": \"total leads\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/chat/message",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"chat",
+								"message"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get History",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/chat/history",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"chat",
+								"history"
+							]
+						}
+					},
+					"response": []
+				}
+			]
 		}
 	],
 	"variable": [

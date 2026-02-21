@@ -89,17 +89,48 @@ def create_lead(current_user):
 @lead_bp.route('/api/leads', methods=['GET'])
 @token_required
 def get_leads(current_user):
-    # Logic for getting leads would go here
-    return jsonify({"message": "Get leads endpoint not fully implemented in this task."}), 501
+    leads = Lead.query.filter_by(
+        organization_id=current_user.organization_id,
+        is_deleted=False
+    ).order_by(Lead.created_at.desc()).all()
+
+    return jsonify([{
+        "id": l.id,
+        "name": l.name,
+        "email": l.email,
+        "phone": l.phone,
+        "company": l.company,
+        "source": l.source,
+        "status": l.status,
+        "city": l.city,
+        "state": l.state,
+        "country": l.country,
+        "created_at": l.created_at.isoformat() if l.created_at else None
+    } for l in leads]), 200
 
 @lead_bp.route('/api/leads/<int:lead_id>', methods=['GET'])
 @token_required
 def get_lead(current_user, lead_id):
-    # Logic for getting a single lead would go here
-    return jsonify({"message": "Get lead endpoint not fully implemented in this task."}), 501
+    lead = Lead.query.filter_by(id=lead_id, organization_id=current_user.organization_id, is_deleted=False).first_or_404()
+    return jsonify({
+        "id": lead.id,
+        "name": lead.name,
+        "email": lead.email,
+        "phone": lead.phone,
+        "company": lead.company,
+        "source": lead.source,
+        "status": lead.status,
+        "city": lead.city,
+        "state": lead.state,
+        "country": lead.country,
+        "created_at": lead.created_at.isoformat() if lead.created_at else None
+    }), 200
 
 @lead_bp.route('/api/leads/<int:lead_id>', methods=['DELETE'])
 @token_required
 def delete_lead(current_user, lead_id):
-    # Logic for deleting a lead would go here
-    return jsonify({"message": "Delete lead endpoint not fully implemented in this task."}), 501
+    lead = Lead.query.filter_by(id=lead_id, organization_id=current_user.organization_id).first_or_404()
+    lead.is_deleted = True
+    lead.deleted_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({"message": "Lead deleted successfully"}), 200

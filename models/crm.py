@@ -36,6 +36,7 @@ class Deal(db.Model):
     title = db.Column(db.String(100))
     company = db.Column(db.String(100))
     stage = db.Column(db.String(50))
+    status = db.Column(db.String(50), default='open')
     value = db.Column(db.Integer)
     owner = db.Column(db.String(100))
     close_date = db.Column(db.Date)
