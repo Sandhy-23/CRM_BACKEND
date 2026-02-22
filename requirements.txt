@@ -1,8 +1,12 @@
 Flask
 Flask-Cors
+Flask-SocketIO
+Flask-Migrate
 Flask-SQLAlchemy
 Flask-JWT-Extended
+Flask-Mail
 python-dotenv
-requests
+openai
 pandas
-openpyxl
+requests
+alembic

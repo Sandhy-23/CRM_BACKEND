@@ -1,7 +1,7 @@
 {
 	"info": {
 		"_postman_id": "rvhcrm-apis",
-		"name": "RVHCRM APIs",
+		"name": "RVHCRM APIs (Fixed)",
 		"description": "Organized collection following Super Admin -> Admin -> Employee flow.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
@@ -3730,6 +3730,88 @@
 								"history"
 							]
 						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "29. AI Chatbot",
+			"item": [
+				{
+					"name": "Ask a question",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"message\": \"Show total leads\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/ai-chat",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"ai-chat"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Test Security (Attempt Delete)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"message\": \"Delete all leads\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/ai-chat",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"ai-chat"
+							]
+						},
+						"description": "This should be blocked by the backend and return a message like 'This assistant only provides information.'"
 					},
 					"response": []
 				}

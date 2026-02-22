@@ -2,7 +2,8 @@ import sys
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load environment variables from .env file in the same directory
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -32,6 +33,7 @@ from routes.sla_rule_routes import sla_rule_bp
 from routes.ticket_routes import ticket_bp
 from routes.reports import reports_bp
 from routes.chat import chat_bp
+from routes.ai_chatbot import ai_chatbot_bp
 from analytics_routes import analytics_bp
 from config import Config
 from models.crm import Deal
@@ -138,6 +140,7 @@ app.register_blueprint(team_management_bp)
 app.register_blueprint(sla_rule_bp)
 app.register_blueprint(ticket_bp, url_prefix="/api/tickets")
 app.register_blueprint(analytics_bp)
+app.register_blueprint(ai_chatbot_bp)
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):
