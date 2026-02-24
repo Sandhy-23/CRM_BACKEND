@@ -1,9 +1,8 @@
 from flask import Blueprint, request, jsonify
 from extensions import db
 from models.crm import Lead
-from models.payment import Payment
 from routes.auth_routes import token_required
-from services.payment_service import create_payment_link
+from services.payment_service import create_cashfree_order
 from services.email_service import send_email
 from datetime import datetime
 
@@ -37,27 +36,18 @@ def update_lead(current_user, lead_id):
     
     db.session.commit()
 
-    # --- PAYMENT AUTOMATION TRIGGER ---
+    # --- PAYMENT AUTOMATION (Cashfree) ---
     # Trigger only if status changes to 'Converted'
-    if data.get("status") == "Converted":
-        # 1. Create Razorpay Payment Link (amount is hardcoded as per example)
-        payment_url, payment_id = create_payment_link(999, lead.email)
+    if data.get("status") == "Converted" and original_status != "Converted":
+        # 1. Create Cashfree Order (Amount hardcoded to 999 for subscription)
+        checkout_url, order_id = create_cashfree_order(lead.id, lead.email, lead.phone, 999)
 
-        if payment_url and payment_id:
-            # 2. Save Payment Record to DB
-            new_payment = Payment(
-                lead_id=lead.id,
-                email=lead.email,
-                razorpay_payment_link_id=payment_id,
-                razorpay_payment_link_url=payment_url,
-                amount=999,
-                status="created"
-            )
-            db.session.add(new_payment)
-            db.session.commit()
-
-            # 3. Send Email with Payment Link
-            send_email(lead.email, "Complete Your CRM Subscription Payment", f"Please complete your payment: {payment_url}")
+        if checkout_url:
+            # 2. Send Email with Frontend Checkout Link
+            subject = "Complete Your CRM Subscription Payment"
+            body = f"Congratulations! Your lead status is now Converted.\n\nPlease complete your payment to proceed:\n{checkout_url}"
+            send_email(lead.email, subject, body)
+            print(f"[INFO] Payment Order Created: {order_id} | Email Sent to {lead.email}")
     
     return jsonify({"message": "Lead updated successfully"}), 200
 
