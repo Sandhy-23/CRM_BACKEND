@@ -1,1 +1,1 @@
-# Initialize utils package
+# Initialize crm_backend package

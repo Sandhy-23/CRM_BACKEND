@@ -33,8 +33,10 @@ from routes.sla_rule_routes import sla_rule_bp
 from routes.ticket_routes import ticket_bp
 from routes.reports import reports_bp
 from routes.chat import chat_bp
-from routes.ai_chatbot import ai_chatbot_bp
 from analytics_routes import analytics_bp
+from routes.profile_routes import profile_bp
+from routes.state_routes import state_bp
+from routes.user_routes import user_bp
 from config import Config
 from models.crm import Deal
 import models
@@ -55,16 +57,13 @@ import models.campaign_log # Register Campaign Log Model
 import models.whatsapp_log
 import models.landing_page
 import models.payment # Register Payment Model
+import models.state
+import models.branch
 
 
 
 app = Flask(__name__)
-CORS(
-    app,
-    resources={r"/api/*": {"origins": "*"}},
-    supports_credentials=True,
-    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-)
+CORS(app)
 app.config.from_object(Config)
 print("DATABASE URI:", app.config['SQLALCHEMY_DATABASE_URI'])
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -121,7 +120,7 @@ app.register_blueprint(pipeline_bp, url_prefix="/api")
 app.register_blueprint(task_bp)
 app.register_blueprint(calendar_bp, url_prefix="/api")
 app.register_blueprint(activity_bp, url_prefix="/api")
-app.register_blueprint(automation_bp, url_prefix="/api")
+app.register_blueprint(automation_bp)
 # app.register_blueprint(report_bp)
 app.register_blueprint(reports_bp, url_prefix="/api/reports")
 app.register_blueprint(chat_bp, url_prefix="/api/chat")
@@ -140,7 +139,9 @@ app.register_blueprint(team_management_bp)
 app.register_blueprint(sla_rule_bp)
 app.register_blueprint(ticket_bp, url_prefix="/api/tickets")
 app.register_blueprint(analytics_bp)
-app.register_blueprint(ai_chatbot_bp)
+app.register_blueprint(profile_bp)
+app.register_blueprint(state_bp)
+app.register_blueprint(user_bp)
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):
@@ -165,7 +166,6 @@ with app.app_context():
     # db.create_all() # Removed in favor of Flask-Migrate
     
     # --- Auto-Migration for Users Table (Fix for missing columns) ---
-    """
     try:
         with db.engine.connect() as connection:
             # Check if is_verified column exists
@@ -236,12 +236,23 @@ with app.app_context():
                 except Exception as e:
                     print(f"[FAIL] Error adding last_active: {e}")
 
+            # Check if is_deleted column exists
+            try:
+                connection.execute(text("SELECT is_deleted FROM users LIMIT 1"))
+            except Exception:
+                print("[WARN] Column 'is_deleted' not found in users. Adding...")
+                try:
+                    connection.execute(text("ALTER TABLE users ADD COLUMN is_deleted BOOLEAN DEFAULT 0"))
+                    print("[OK] Added column: is_deleted")
+                    connection.commit()
+                except Exception as e:
+                    print(f"[FAIL] Error adding is_deleted: {e}")
+
     except Exception as e:
         print(f"Migration Error: {e}")
-    """
     
     # --- Fix Users with NULL Organization ID ---
-    """
+    '''
     try:
         with db.engine.connect() as connection:
             # If users exist with NULL org_id, assign them to the first organization found (Dev Fix)
@@ -250,7 +261,7 @@ with app.app_context():
             # print("✔ Fixed users with missing organization_id")
     except Exception as e:
         print(f"Data Fix Error: {e}")
-    """
+    '''
     # -------------------------------------------
 
     # --- Auto-Migration for Leads & Deals (Fix for missing columns) ---
@@ -737,6 +748,169 @@ with app.app_context():
     except Exception as e:
         print(f"Contacts Migration Error: {e}")
     '''
+
+    # --- Auto-Migration for Marketing Analytics (Campaigns & Leads) ---
+    try:
+        with db.engine.connect() as connection:
+            # 1. Add start_date/budget to campaigns
+            try:
+                connection.execute(text("SELECT start_date FROM campaigns LIMIT 1"))
+            except Exception:
+                print("[WARN] Marketing columns missing in campaigns. Adding...")
+                try:
+                    connection.execute(text("ALTER TABLE campaigns ADD COLUMN start_date DATETIME"))
+                    connection.execute(text("ALTER TABLE campaigns ADD COLUMN end_date DATETIME"))
+                    connection.execute(text("ALTER TABLE campaigns ADD COLUMN budget FLOAT DEFAULT 0"))
+                    connection.execute(text("ALTER TABLE campaigns ADD COLUMN spent FLOAT DEFAULT 0"))
+                    print("[OK] Added marketing columns to campaigns.")
+                    connection.commit()
+                except Exception as e:
+                    print(f"[FAIL] Error updating campaigns table: {e}")
+
+            # 1.1 Add scheduled_at to campaigns
+            try:
+                connection.execute(text("SELECT scheduled_at FROM campaigns LIMIT 1"))
+            except Exception:
+                print("[WARN] Column 'scheduled_at' missing in campaigns. Adding...")
+                try:
+                    connection.execute(text("ALTER TABLE campaigns ADD COLUMN scheduled_at DATETIME"))
+                    print("[OK] Added scheduled_at to campaigns.")
+                    connection.commit()
+                except Exception as e:
+                    print(f"[FAIL] Error updating campaigns table: {e}")
+
+            # 2. Add campaign_id to leads
+            try:
+                connection.execute(text("SELECT campaign_id FROM leads LIMIT 1"))
+            except Exception:
+                print("[WARN] Column 'campaign_id' missing in leads. Adding...")
+                try:
+                    connection.execute(text("ALTER TABLE leads ADD COLUMN campaign_id VARCHAR(36)"))
+                    print("[OK] Added campaign_id to leads.")
+                    connection.commit()
+                except Exception as e:
+                    print(f"[FAIL] Error adding campaign_id to leads: {e}")
+    except Exception as e:
+        pass
+
+    # --- Auto-Migration for Campaigns (New Fields) ---
+    try:
+        with db.engine.connect() as connection:
+            try:
+                connection.execute(text("SELECT color FROM campaigns LIMIT 1"))
+            except Exception:
+                print("[WARN] New campaign fields missing. Adding...")
+                try:
+                    connection.execute(text("ALTER TABLE campaigns ADD COLUMN color VARCHAR(20) DEFAULT 'blue'"))
+                    connection.execute(text("ALTER TABLE campaigns ADD COLUMN branch VARCHAR(100)"))
+                    connection.execute(text("ALTER TABLE campaigns ADD COLUMN whatsapp_config JSON"))
+                    print("[OK] Added color, branch, whatsapp_config to campaigns.")
+                    connection.commit()
+                except Exception as e:
+                    print(f"[FAIL] Error updating campaigns table: {e}")
+    except Exception as e:
+        pass
+
+    # --- Auto-Migration for Landing Pages (New Schema) ---
+    try:
+        with db.engine.connect() as connection:
+            try:
+                connection.execute(text("SELECT headline FROM landing_pages LIMIT 1"))
+            except Exception:
+                print("[WARN] Landing Page schema mismatch. Recreating table...")
+                # Since the ID type changed from Integer to String(UUID), we must recreate the table.
+                # This is safe in dev mode as per instructions.
+                try:
+                    connection.execute(text("DROP TABLE IF EXISTS landing_pages"))
+                    # The table will be recreated by db.create_all() below if it doesn't exist
+                    # But db.create_all() is usually called at start. 
+                    # We can rely on the next restart or force creation if needed.
+                    # For now, dropping allows SQLAlchemy to recreate it if we run db.create_all() again.
+                    print("[OK] Dropped old landing_pages table. Restart server to recreate.")
+                except Exception as e:
+                    print(f"[FAIL] Error dropping landing_pages: {e}")
+    except Exception as e:
+        pass
+
+    # --- Auto-Migration for Organization & User (New Profile Fields) ---
+    try:
+        with db.engine.connect() as connection:
+            # 1. Organization Fields
+            org_new_cols = [
+                ("website", "VARCHAR(150)"),
+                ("address", "VARCHAR(250)"),
+                ("total_employees", "INTEGER"),
+                ("founded_year", "VARCHAR(10)"),
+                ("hq", "VARCHAR(100)"),
+                ("legal_name", "VARCHAR(150)")
+            ]
+            for col_name, col_type in org_new_cols:
+                try:
+                    connection.execute(text(f"SELECT {col_name} FROM organizations LIMIT 1"))
+                except Exception:
+                    print(f"[WARN] Column '{col_name}' missing in organizations. Adding...")
+                    try:
+                        connection.execute(text(f"ALTER TABLE organizations ADD COLUMN {col_name} {col_type}"))
+                        print(f"[OK] Added {col_name} to organizations.")
+                    except Exception as e:
+                        print(f"[FAIL] Error adding {col_name}: {e}")
+            
+            # 2. User Fields
+            user_new_cols = [
+                ("location", "VARCHAR(100)"),
+                ("invite_token", "VARCHAR(255)"),
+                ("invite_expiry", "DATETIME")
+            ]
+            for col_name, col_type in user_new_cols:
+                try:
+                    connection.execute(text(f"SELECT {col_name} FROM users LIMIT 1"))
+                except Exception:
+                    print(f"[WARN] Column '{col_name}' missing in users. Adding...")
+                    try:
+                        connection.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
+                        print(f"[OK] Added {col_name} to users.")
+                    except Exception as e:
+                        print(f"[FAIL] Error adding {col_name}: {e}")
+            
+            connection.commit()
+    except Exception as e:
+        print(f"Profile Migration Error: {e}")
+
+    # --- Create State and Branch Tables if not exist ---
+    try:
+        db.create_all() # This will create states and branches tables if they don't exist
+    except Exception as e:
+        print(f"Table Creation Error: {e}")
+
+    # --- Auto-Migration for Automation Rules Table (Adding missing columns) ---
+    try:
+        with db.engine.connect() as connection:
+            # Check if table exists before trying to alter it
+            try:
+                connection.execute(text("SELECT id FROM automation_rules LIMIT 1"))
+            except Exception:
+                # Table doesn't exist, will be created by db.create_all()
+                pass
+            else:
+                # Table exists, check for columns
+                automation_cols = [
+                    ("name", "VARCHAR(255)"),
+                    ("trigger_event", "VARCHAR(100)"),
+                    ("conditions", "TEXT"),
+                    ("actions", "TEXT"),
+                    ("branch_id", "INTEGER"),
+                    ("organization_id", "INTEGER"),
+                    ("created_at", "DATETIME")
+                ]
+                for col_name, col_type in automation_cols:
+                    try:
+                        connection.execute(text(f"ALTER TABLE automation_rules ADD COLUMN {col_name} {col_type}"))
+                        print(f"[OK] Added column '{col_name}' to automation_rules.")
+                    except Exception:
+                        pass # Column likely already exists
+                connection.commit()
+    except Exception as e:
+        print(f"Automation Rules Migration Error: {e}")
 
     # --- Auto-Migration for Automation Tables (New Schema) ---
     '''

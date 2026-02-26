@@ -859,3 +859,51 @@ def get_today_tasks(current_user):
     except Exception as e:
         print(f"[FAIL] Get Today Tasks Error: {e}")
         return jsonify([])
+
+@dashboard_bp.route('/dashboard/revenue', methods=['GET'])
+@token_required
+def get_revenue_chart(current_user):
+    """
+    Returns revenue data for the dashboard chart.
+    Falls back to dummy data if less than 3 months of real data exists.
+    """
+    # Dummy Data
+    DUMMY_REVENUE = [
+        {"month": "Jan", "revenue": 250000},
+        {"month": "Feb", "revenue": 320000},
+        {"month": "Mar", "revenue": 280000},
+        {"month": "Apr", "revenue": 450000},
+        {"month": "May", "revenue": 520000},
+        {"month": "Jun", "revenue": 480000},
+        {"month": "Jul", "revenue": 610000},
+        {"month": "Aug", "revenue": 580000},
+        {"month": "Sep", "revenue": 720000},
+        {"month": "Oct", "revenue": 680000},
+        {"month": "Nov", "revenue": 850000},
+        {"month": "Dec", "revenue": 920000}
+    ]
+
+    current_year = datetime.utcnow().year
+
+    # Query Real Data (Group by month of creation for Won deals)
+    revenue_data = db.session.query(
+        extract('month', Deal.created_at).label('month'),
+        func.sum(Deal.value).label('total')
+    ).filter(
+        Deal.organization_id == current_user.organization_id,
+        func.lower(Deal.stage).in_(['won', 'closed won']),
+        extract('year', Deal.created_at) == current_year,
+        Deal.is_deleted == False
+    ).group_by(extract('month', Deal.created_at)).all()
+
+    # If very little real data (< 3 months) -> return dummy
+    if len(revenue_data) < 3:
+        return jsonify(DUMMY_REVENUE)
+
+    # Otherwise build real response
+    revenue_dict = {int(r.month): float(r.total) for r in revenue_data}
+    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    
+    response = [{"month": months[i-1], "revenue": revenue_dict.get(i, 0)} for i in range(1, 13)]
+
+    return jsonify(response)

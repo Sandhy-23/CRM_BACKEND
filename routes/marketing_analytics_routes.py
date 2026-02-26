@@ -1,68 +1,120 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, jsonify, request
 from extensions import db
-from routes.auth_routes import token_required
 from models.campaign import Campaign
-from models.crm import Lead
-from models.crm import Deal
-from models.landing_page import LandingPageEvent
-from sqlalchemy import func, extract
+from models.crm import Lead, Deal
+from routes.auth_routes import token_required
+from sqlalchemy import func, case
+from datetime import datetime
 import calendar
 
 marketing_analytics_bp = Blueprint('marketing_analytics', __name__)
 
-@marketing_analytics_bp.route('/api/marketing/stats', methods=['GET'])
+@marketing_analytics_bp.route('/api/marketing/analytics', methods=['GET'])
 @token_required
-def get_marketing_stats(current_user):
-    branch_id = request.args.get('branchId')
+def get_marketing_analytics(current_user):
     org_id = current_user.organization_id
+
+    # 1️⃣ Summary Metrics
+    total_campaigns = Campaign.query.filter_by(organization_id=org_id).count()
+    total_leads = Lead.query.filter_by(organization_id=org_id, is_deleted=False).count()
     
-    # Base Queries
-    campaigns_query = Campaign.query.filter_by(organization_id=org_id)
-    leads_query = Lead.query.filter_by(organization_id=org_id)
+    # Revenue from Won Deals
+    revenue = db.session.query(func.sum(Deal.value)).filter(
+        Deal.organization_id == org_id,
+        Deal.stage.ilike('%won%'),
+        Deal.is_deleted == False
+    ).scalar() or 0
+
+    # Conversion Rate
+    won_deals_count = Deal.query.filter(
+        Deal.organization_id == org_id,
+        Deal.stage.ilike('%won%'),
+        Deal.is_deleted == False
+    ).count()
     
-    # KPIs
-    total_campaigns = campaigns_query.count()
-    leads_generated = leads_query.count()
-    
-    # Total Revenue (Won Deals)
-    total_revenue = db.session.query(func.sum(Deal.value)).filter_by(organization_id=org_id, stage='Won').scalar() or 0
-    
-    # Conversion Rate (Leads / Landing Page Views)
-    total_views = LandingPageEvent.query.filter_by(organization_id=org_id, event_type='view').count()
-    total_conversions = LandingPageEvent.query.filter_by(organization_id=org_id, event_type='conversion').count()
-    conversion_rate = (total_conversions / total_views * 100) if total_views > 0 else 0
-    
-    # Channel Stats
-    channel_stats = db.session.query(
-        Campaign.channel, func.count(Campaign.id)
-    ).filter_by(organization_id=org_id).group_by(Campaign.channel).all()
-    
-    channel_data = {c[0]: c[1] for c in channel_stats}
-    
-    # Funnel (Leads by Status)
-    funnel_stats = db.session.query(
-        Lead.status, func.count(Lead.id)
-    ).filter_by(organization_id=org_id).group_by(Lead.status).all()
-    
-    funnel_data = {f[0]: f[1] for f in funnel_stats}
-    
-    # Trends (Leads by Month)
-    trends_results = db.session.query(
-        func.strftime('%m', Lead.created_at).label('month'),
+    conversion_rate = 0
+    if total_leads > 0:
+        conversion_rate = round((won_deals_count / total_leads) * 100, 2)
+
+    # 2️⃣ Monthly Trend (Leads)
+    # SQLite uses strftime, MySQL uses DATE_FORMAT. Assuming SQLite based on context.
+    monthly_trends = db.session.query(
+        func.strftime('%Y-%m', Lead.created_at).label('month'),
         func.count(Lead.id)
-    ).filter_by(organization_id=org_id).group_by('month').all()
+    ).filter(
+        Lead.organization_id == org_id,
+        Lead.is_deleted == False
+    ).group_by('month').order_by('month').all()
+
+    trend_data = []
+    for mt in monthly_trends:
+        if mt[0]:
+            year, month = mt[0].split('-')
+            month_name = calendar.month_abbr[int(month)]
+            trend_data.append({"name": f"{month_name}", "leads": mt[1]})
+
+    # 3️⃣ Funnel Analysis
+    # Leads -> Opportunities (Deals Created) -> Wins
+    total_opportunities = Deal.query.filter_by(organization_id=org_id, is_deleted=False).count()
     
-    trends_data = []
-    for r in trends_results:
-        month_name = calendar.month_abbr[int(r[0])]
-        trends_data.append({"month": month_name, "leads": r[1]})
+    funnel_data = [
+        {"name": "Total Leads", "value": total_leads, "fill": "#8884d8"},
+        {"name": "Opportunities", "value": total_opportunities, "fill": "#82ca9d"},
+        {"name": "Wins", "value": won_deals_count, "fill": "#ffc658"}
+    ]
+
+    # 4️⃣ Channel Performance (Lead Source)
+    channel_stats = db.session.query(
+        Lead.source,
+        func.count(Lead.id)
+    ).filter(
+        Lead.organization_id == org_id,
+        Lead.is_deleted == False
+    ).group_by(Lead.source).all()
+
+    channel_data = [{"name": cs[0] or "Unknown", "value": cs[1]} for cs in channel_stats]
+
+    # 5️⃣ Campaign Performance
+    # Join Campaign -> Lead -> Deal to get ROI per campaign
+    campaigns = Campaign.query.filter_by(organization_id=org_id).all()
+    campaign_performance = []
+
+    for camp in campaigns:
+        # Count Leads for this campaign
+        camp_leads = Lead.query.filter_by(campaign_id=str(camp.id), is_deleted=False).count()
+        
+        # Calculate Revenue (Deals from Leads of this campaign)
+        # Note: This requires Leads to have campaign_id populated
+        camp_revenue = db.session.query(func.sum(Deal.value)).join(Lead, Deal.lead_id == Lead.id).filter(
+            Lead.campaign_id == str(camp.id),
+            Deal.stage.ilike('%won%'),
+            Deal.is_deleted == False
+        ).scalar() or 0
+
+        # ROI Calculation
+        roi = 0
+        if camp.spent and camp.spent > 0:
+            roi = round(((camp_revenue - camp.spent) / camp.spent) * 100, 2)
+
+        campaign_performance.append({
+            "id": camp.id,
+            "name": camp.name,
+            "status": camp.status,
+            "leads": camp_leads,
+            "revenue": camp_revenue,
+            "spent": camp.spent or 0,
+            "roi": roi
+        })
 
     return jsonify({
-        "total_campaigns": total_campaigns,
-        "leads_generated": leads_generated,
-        "conversion_rate": round(conversion_rate, 2),
-        "total_revenue": total_revenue,
-        "channel_stats": channel_data,
-        "funnel": funnel_data,
-        "trends": trends_data
+        "kpis": {
+            "total_campaigns": total_campaigns,
+            "total_leads": total_leads,
+            "conversion_rate": conversion_rate,
+            "revenue": revenue
+        },
+        "trend_data": trend_data,
+        "funnel_data": funnel_data,
+        "channel_data": channel_data,
+        "campaign_performance": campaign_performance
     }), 200

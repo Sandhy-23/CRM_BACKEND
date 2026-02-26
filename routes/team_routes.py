@@ -1,11 +1,47 @@
 from flask import Blueprint, request, jsonify
 from extensions import db
 from models.team import Team, LocationTeamMapping
+from models.user import User
 from routes.auth_routes import token_required
 
 team_bp = Blueprint('teams', __name__)
 
-# STEP 1: Create Teams
+# --- TEAM API FOR FRONTEND ---
+
+@team_bp.route('/api/team', methods=['GET'])
+@token_required
+def get_team_overview(current_user):
+    """
+    Returns team statistics and list of members for the Team Management page.
+    """
+    org_id = current_user.organization_id
+
+    # 1. Fetch Members
+    members = User.query.filter_by(organization_id=org_id, is_deleted=False).all()
+    
+    # 2. Calculate Stats
+    total_members = len(members)
+    active_members = sum(1 for m in members if m.status == 'Active')
+    
+    members_data = [{
+        "id": m.id,
+        "name": m.name,
+        "role": m.role,
+        "email": m.email,
+        "status": m.status,
+        "last_active": "Today" # Placeholder, or use m.last_active if available
+    } for m in members]
+
+    return jsonify({
+        "stats": {
+            "total_members": total_members,
+            "active_members": active_members
+        },
+        "teamMembers": members_data
+    }), 200
+
+# --- EXISTING TEAM MANAGEMENT ROUTES ---
+
 @team_bp.route('/api/teams', methods=['POST'])
 @token_required
 def create_team(current_user):

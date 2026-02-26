@@ -17,6 +17,12 @@ class Organization(db.Model):
     country = db.Column(db.String(100))
     state = db.Column(db.String(100))
     city_or_branch = db.Column(db.String(100))
+    website = db.Column(db.String(150))
+    address = db.Column(db.String(250))
+    total_employees = db.Column(db.Integer)
+    founded_year = db.Column(db.String(10))
+    hq = db.Column(db.String(100))
+    legal_name = db.Column(db.String(150))
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     
     plan_id = db.Column(db.Integer, db.ForeignKey('plans.id'), nullable=True)

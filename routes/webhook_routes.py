@@ -3,8 +3,8 @@ from extensions import db
 from models.conversation import Conversation
 from models.message import Message
 from models.crm import Lead
-from models.channel_account import ChannelAccount
-from services.automation_engine import run_workflow
+# from models.channel_account import ChannelAccount
+# from services.automation_engine import run_workflow
 from datetime import datetime
 
 webhook_bp = Blueprint('webhooks', __name__)
@@ -74,10 +74,10 @@ def whatsapp_webhook():
             db.session.commit()
             
             # 4. Run Automation
-            run_workflow(
-                trigger="new_message",
-                deal=lead # Passing lead as 'deal' context for now, or update engine
-            )
+            # run_workflow(
+            #     trigger="new_message",
+            #     deal=lead # Passing lead as 'deal' context for now, or update engine
+            # )
             
             # 5. Emit Socket Event (if configured)
             try:

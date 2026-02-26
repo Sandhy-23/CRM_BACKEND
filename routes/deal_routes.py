@@ -5,7 +5,7 @@ from routes.auth_routes import token_required
 from datetime import datetime, date
 from sqlalchemy import func
 from models.activity_logger import log_activity
-from services.automation_engine import run_workflow
+# from services.automation_engine import run_workflow
 
 deal_bp = Blueprint('deals', __name__)
 
@@ -76,7 +76,7 @@ def create_deal(current_user):
     log_activity("deal", "created", f"Deal '{new_deal.title}' created in {new_deal.pipeline}.", new_deal.id)
     
     # AUTOMATION HOOK
-    run_workflow("deal_created", new_deal)
+    # run_workflow("deal_created", new_deal)
     
     return jsonify({
         "message": "Deal created successfully",
@@ -176,8 +176,8 @@ def update_deal(current_user, deal_id):
         
         # AUTOMATION HOOK
         if old_stage != deal.stage:
-            run_workflow("deal_updated", deal)
-            
+            # run_workflow("deal_updated", deal)
+            pass
         return jsonify({'message': 'Deal updated successfully'}), 200
     
     return jsonify({'message': 'No valid fields provided for update'}), 400
@@ -227,8 +227,8 @@ def update_deal_status(current_user, deal_id):
     
     # AUTOMATION HOOK
     if old_stage != deal.stage:
-        run_workflow("deal_updated", deal)
-
+        # run_workflow("deal_updated", deal)
+        pass
     return jsonify({'message': f'Deal status updated to {new_stage}'}), 200
 
 @deal_bp.route('/api/deals/analytics', methods=['GET'])

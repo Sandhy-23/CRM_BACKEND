@@ -13,6 +13,7 @@ class User(db.Model):
     designation = db.Column(db.String(100))
     # Per user request, roles are 'admin', 'agent'
     role = db.Column(db.String(50), default='agent')
+    location = db.Column(db.String(100))
     status = db.Column(db.String(20), default='Active')
     date_of_joining = db.Column(db.DateTime)
     is_approved = db.Column(db.Boolean, default=False)
@@ -20,6 +21,11 @@ class User(db.Model):
     organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
     provider = db.Column(db.String(20), default='email')
     provider_id = db.Column(db.String(100))
+
+    invite_token = db.Column(db.String(255))
+    invite_expiry = db.Column(db.DateTime)
+
+    is_deleted = db.Column(db.Boolean, default=False)
 
     # New field from user request
     team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)

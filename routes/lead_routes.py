@@ -1,12 +1,44 @@
 from flask import Blueprint, request, jsonify
 from extensions import db
 from models.crm import Lead
+from models.automation import AutomationRule
 from routes.auth_routes import token_required
 from services.payment_service import create_cashfree_order
 from services.email_service import send_email
 from datetime import datetime
 
 lead_bp = Blueprint('lead', __name__)
+
+def send_email_function():
+    """Placeholder for sending email action."""
+    print("Placeholder: Sending email...")
+    pass
+
+def notify_manager_function():
+    """Placeholder for notifying manager action."""
+    print("Placeholder: Notifying manager...")
+    pass
+
+def apply_automation_rules(lead):
+    """Checks active automation rules and applies them to a lead."""
+    rules = AutomationRule.query.filter_by(status="Active").all()
+
+    for rule in rules:
+        # This is a simplified example condition check. A real implementation would parse this.
+        if "lead_amount > 50000" in rule.conditions:
+            # NOTE: The 'Lead' model does not have an 'amount' field. This is a conceptual example.
+            if hasattr(lead, 'amount') and lead.amount > 50000:
+                if rule.action_type == "Assign to Branch" and hasattr(lead, 'branch_id'):
+                    lead.branch_id = int(rule.action_value)
+                elif rule.action_type == "Assign to Team" and hasattr(lead, 'assigned_team_id'):
+                    lead.assigned_team_id = int(rule.action_value)
+                elif rule.action_type == "Archive Lead":
+                    lead.status = "Archived"
+                elif rule.action_type == "Send Email":
+                    send_email_function()
+                elif rule.action_type == "Notify Manager":
+                    notify_manager_function()
+    db.session.commit()
 
 # NOTE: This file was created to implement the payment automation feature.
 # Other lead-related routes might exist elsewhere or can be added here.
@@ -73,6 +105,9 @@ def create_lead(current_user):
 
     db.session.add(new_lead)
     db.session.commit()
+
+    # Apply automation rules after lead creation
+    apply_automation_rules(new_lead)
 
     return jsonify({"message": "Lead created successfully"}), 201
 

@@ -15,6 +15,7 @@ class Lead(db.Model):
     source = db.Column(db.String(50)) # website / orbit / whatsapp
     score = db.Column(db.String(20))
     sla = db.Column(db.String(20))
+    campaign_id = db.Column(db.String(36), db.ForeignKey('campaigns.id'), nullable=True)
     # description = db.Column(db.Text) # Temporarily disabled
     assigned_team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
     assigned_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
