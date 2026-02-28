@@ -9,6 +9,7 @@ from models.pipeline import Pipeline, PipelineStage
 from flask_jwt_extended import create_access_token, verify_jwt_in_request, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
 import datetime
+from flask import Blueprint, request, jsonify
 import random
 import secrets
 import urllib.parse
@@ -18,31 +19,17 @@ import re
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import os
 from dotenv import load_dotenv, find_dotenv
+import os
 import requests
-
-# Load environment variables from .env file
-basedir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-env_path = os.path.join(basedir, '.env')
-env_typo_path = os.path.join(basedir, '.env.') # Handle potential typo
-
-if os.path.exists(env_path):
-    load_dotenv(env_path, override=True)
-    print(f"[OK] Loaded .env from: {env_path}")
-elif os.path.exists(env_typo_path):
-    load_dotenv(env_typo_path, override=True)
-    print(f"[WARN] Loaded .env from typo path: {env_typo_path}. Please rename to .env")
-else:
-    load_dotenv(find_dotenv(), override=True)
 
 auth_bp = Blueprint('auth', __name__)
 social_bp = Blueprint('social_auth', __name__)
 
 # --- Helper Functions ---
 
+
 def generate_otp():
-    """Generates a 6-digit OTP."""
     return str(random.randint(100000, 999999))
 
 def validate_email_format(email):
@@ -98,8 +85,7 @@ def send_email(to_email, subject, body):
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        # ✅ ALLOW PREFLIGHT
-        if request.method == "OPTIONS":
+        if request.method == 'OPTIONS':
             return "", 200
 
         try:
@@ -109,10 +95,11 @@ def token_required(f):
             if not current_user:
                 print(f"[FAIL] Auth Error: User ID {user_id} not found in database.")
                 return jsonify({"error": "Unauthorized", "message": "User not found"}), 401
+
         except Exception as e:
             print(f"[FAIL] Auth Error: Token verification failed. {str(e)}")
             return jsonify({"error": "Unauthorized", "message": str(e)}), 401
-            
+
         return f(current_user, *args, **kwargs)
     return decorated
 
@@ -174,11 +161,11 @@ def signup():
     # --- OTP SIGNUP FLOW ---
     otp = generate_otp()
     expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
-    
+
     # Store OTP in DB (Persistence)
     # Remove old OTPs for this email if any
     OtpVerification.query.filter_by(email=email).delete()
-    
+
     verification_entry = OtpVerification(
         email=email,
         otp=otp,
@@ -193,10 +180,10 @@ def signup():
         db.session.rollback()
         print(f"[FAIL] DB ERROR in signup: {str(e)}")
         return jsonify({"error": "Database error", "message": str(e)}), 500
-    
+
     # Send OTP (Logs to console if SMTP not set)
     send_email(email, "Signup OTP", f"Your OTP is: {otp}")
-    
+
     return jsonify({"message": "OTP sent successfully", "otp": otp}), 200
 
 @auth_bp.route('/verify-otp', methods=['POST'])
@@ -218,9 +205,9 @@ def verify_otp():
     # 1. Check DB Storage
     print(f"[DEBUG] Verifying OTP by code: '{otp}'")
     record = OtpVerification.query.filter_by(otp=otp).first()
-    
+
     email = record.email if record else None
-    
+
     if not record:
         # DEBUG: List all OTPs to see what's going on
         all_otps = OtpVerification.query.all()
@@ -232,7 +219,7 @@ def verify_otp():
     if record.otp != otp:
         print(f"[FAIL] Verify OTP Failed: Invalid OTP for '{email}'. Expected: {record.otp}, Received: {otp}")
         return jsonify({"error": "Invalid OTP"}), 400
-    
+
     if datetime.datetime.utcnow() > record.expiry:
         print(f"[FAIL] Verify OTP Failed: OTP expired for '{email}'.")
         try:
@@ -278,21 +265,21 @@ def verify_otp():
         db.session.add(new_user)
         db.session.delete(record) # Remove OTP record
         db.session.commit()
-        
+
         # Now that user exists, link them as the creator of the org
         if new_org:
             new_org.created_by = new_user.id
             db.session.commit()
 
-            # --- Auto-Create Default Pipeline ---
-            default_pipeline = Pipeline(name="Standard Pipeline", company_id=new_org.id, is_default=True)
-            db.session.add(default_pipeline)
-            db.session.flush()
-            
-            stages = ["New", "Qualified", "Proposal", "Negotiation", "Won", "Lost"]
-            for idx, s_name in enumerate(stages):
-                db.session.add(PipelineStage(pipeline_id=default_pipeline.id, name=s_name, stage_order=idx+1))
-            db.session.commit()
+        # --- Auto-Create Default Pipeline ---
+        default_pipeline = Pipeline(name="Standard Pipeline", company_id=new_org.id, is_default=True)
+        db.session.add(default_pipeline)
+        db.session.flush()
+
+        stages = ["New", "Qualified", "Proposal", "Negotiation", "Won", "Lost"]
+        for idx, s_name in enumerate(stages):
+            db.session.add(PipelineStage(pipeline_id=default_pipeline.id, name=s_name, stage_order=idx+1))
+        db.session.commit()
         # ------------------------------------
 
         print(f"[OK] User created successfully: {email} (Role: {role})")
@@ -302,7 +289,7 @@ def verify_otp():
         db.session.rollback()
         print(f"[FAIL] Database Error in verify-otp: {e}")
         return jsonify({"error": str(e)}), 500
-    
+
 @auth_bp.route('/resend-otp', methods=['POST'])
 def resend_otp():
     data = request.get_json()
@@ -322,11 +309,11 @@ def resend_otp():
         record = PasswordResetToken.query.filter_by(email=email).first()
         if not record:
             return jsonify({"error": "No pending password reset found. Please request a new password reset."}), 400
-        
+
         new_otp = generate_otp()
         record.otp = new_otp
         record.expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
-        
+
         try:
             db.session.commit()
             send_email(email, "Resend Password Reset OTP", f"Your new OTP is: {new_otp}")
@@ -337,14 +324,14 @@ def resend_otp():
     else:
         # --- FLOW: Signup Verification Resend ---
         record = OtpVerification.query.filter_by(email=email).first()
-        
+
         if not record:
             return jsonify({"error": "No pending signup found. Please sign up again."}), 400
 
         new_otp = generate_otp()
         record.otp = new_otp
         record.expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
-        
+
         try:
             db.session.commit()
             send_email(email, "Resend Signup OTP", f"Your new OTP is: {new_otp}")
@@ -394,7 +381,7 @@ def login():
             "organization_id": user.organization_id
         }
     )
-    
+
     # Log Activity
     log = LoginHistory(user_id=user.id, login_time=datetime.datetime.utcnow(), ip_address=request.remote_addr, status="Success")
     try:
@@ -410,7 +397,8 @@ def login():
     print(f"[OK] Login Successful for {user.email}. URL generated: {full_url}")
 
     # 4. Return the mandatory response
-    return jsonify({
+
+    return jsonify( {
         "token": access_token,
         "role": user.role,
         "redirect_url": full_url
@@ -420,58 +408,58 @@ def login():
 def google_login():
     data = request.get_json()
     token = data.get('google_token')
-    
+
     if not token:
         return jsonify({"message": "Google token is required"}), 400
-        
+
     # 1. Verify Token with Google
     google_url = f"https://oauth2.googleapis.com/tokeninfo?id_token={token}"
     response = requests.get(google_url)
-    
+
     if response.status_code != 200:
         return jsonify({"message": "Invalid Google Token"}), 401
-        
+
     google_data = response.json()
     email = google_data.get('email')
     name = google_data.get('name')
     provider_id = google_data.get('sub')
-    
+
     return handle_oauth_login(email, name, 'google', provider_id)
 
 @social_bp.route('/facebook', methods=['POST'])
 def facebook_login():
     data = request.get_json()
     token = data.get('facebook_token')
-    
+
     if not token:
         return jsonify({"message": "Facebook token is required"}), 400
-        
+
     # 1. Verify Token with Facebook
     # Note: Frontend usually sends Access Token
     fb_url = f"https://graph.facebook.com/me?access_token={token}&fields=id,name,email"
     response = requests.get(fb_url)
-    
+
     if response.status_code != 200:
         return jsonify({"message": "Invalid Facebook Token"}), 401
-        
+
     fb_data = response.json()
     email = fb_data.get('email')
     name = fb_data.get('name')
     provider_id = fb_data.get('id')
-    
+
     # Fallback if email is missing (Facebook sometimes doesn't return it)
     if not email:
         email = f"{provider_id}@facebook.com"
-        
+
     return handle_oauth_login(email, name, 'facebook', provider_id)
 
 def handle_oauth_login(email, name, provider, provider_id):
     """Shared logic for OAuth providers"""
-    
+
     try:
         # 1. Check if user exists
         user = User.query.filter_by(email=email).first()
-        
+
         if user:
             # Update provider info if not set
             if not user.provider or user.provider == 'email':
@@ -489,7 +477,7 @@ def handle_oauth_login(email, name, provider, provider_id):
             db.session.flush() # Get ID
             org_id = new_org.id
             # --- END UNIFIED LOGIC ---
-            
+
             user = User(
                 name=name,
                 email=email,
@@ -509,18 +497,16 @@ def handle_oauth_login(email, name, provider, provider_id):
                 new_org.created_by = user.id
                 db.session.commit() # Commit to save user and org creator link
 
-                # --- Auto-Create Default Pipeline (Consistent with OTP flow) ---
-                default_pipeline = Pipeline(name="Standard Pipeline", company_id=new_org.id, is_default=True)
-                db.session.add(default_pipeline)
-                db.session.flush()
-                
-                stages = ["New", "Qualified", "Proposal", "Negotiation", "Won", "Lost"]
-                for idx, s_name in enumerate(stages):
-                    db.session.add(PipelineStage(pipeline_id=default_pipeline.id, name=s_name, stage_order=idx+1))
-                db.session.commit()
-            else:
-                db.session.commit() # Commit to save user if no org was created
+            # --- Auto-Create Default Pipeline (Consistent with OTP flow) ---
+            default_pipeline = Pipeline(name="Standard Pipeline", company_id=new_org.id, is_default=True)
+            db.session.add(default_pipeline)
+            db.session.flush()
 
+            stages = ["New", "Qualified", "Proposal", "Negotiation", "Won", "Lost"]
+            for idx, s_name in enumerate(stages):
+                db.session.add(PipelineStage(pipeline_id=default_pipeline.id, name=s_name, stage_order=idx+1))
+            db.session.commit()
+        
         # 3. Generate Token
         access_token = create_access_token(
             identity=str(user.id), 
@@ -530,7 +516,7 @@ def handle_oauth_login(email, name, provider, provider_id):
                 "organization_id": user.organization_id
             }
         )
-        
+
         # 4. Log Activity
         log = LoginHistory(
             user_id=user.id, 
@@ -540,14 +526,13 @@ def handle_oauth_login(email, name, provider, provider_id):
         )
         db.session.add(log)
         db.session.commit()
-        
+
         # 5. Generate Redirect URL
         redirect_url = construct_dashboard_url(user)
-        
+
         return jsonify({
             "message": "Login successful",
             "token": access_token,
-            "role": user.role,
             "redirect_url": redirect_url
         }), 200
     except Exception as e:
@@ -559,15 +544,15 @@ def handle_oauth_login(email, name, provider, provider_id):
 def forgot_password():
     data = request.get_json()
     email = data.get('email', '').strip().lower()
-    
+
     user = User.query.filter_by(email=email).first()
     if not user:
         # Security: Do not reveal if email exists
         return jsonify({"message": "If this email is registered, an OTP has been sent."}), 200
-    
+
     otp = generate_otp()
     expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
-    
+
     # Use the new PasswordResetToken table
     PasswordResetToken.query.filter_by(email=email).delete()
     reset_token_entry = PasswordResetToken(
@@ -582,10 +567,9 @@ def forgot_password():
         db.session.rollback()
         print(f"[FAIL] DB ERROR in forgot_password: {str(e)}")
         return jsonify({"error": "Database error", "message": str(e)}), 500
-    
+
     if send_email(email, "Reset Password OTP", f"Your password reset OTP is {otp}"):
         return jsonify({
-
             "message": "If this email is registered, an OTP has been sent."
         }), 200
     else:
@@ -603,12 +587,12 @@ def verify_reset_otp():
     record = PasswordResetToken.query.filter_by(otp=otp).first()
     if not record:
         return jsonify({"error": "Invalid OTP or no pending reset found."}), 404
-    
+
     if datetime.datetime.utcnow() > record.expires_at:
         db.session.delete(record)
         db.session.commit()
         return jsonify({"error": "OTP has expired"}), 400
-    
+
     try:
         record.verified = True
         # Generate a secure token for the session
@@ -630,7 +614,7 @@ def verify_reset_otp():
 @auth_bp.route('/reset-password', methods=['POST'])
 def reset_password():
     data = request.get_json() or {}
-    
+
     # New flow: email, otp, new_password, confirm_password
     email = data.get('email')
     otp = data.get('otp')
@@ -650,7 +634,7 @@ def reset_password():
 
     # 3. Find OTP record
     otp_record = PasswordResetToken.query.filter_by(email=email, otp=otp).first()
-    
+
     if not otp_record:
         print(f"[FAIL] Reset Password Failed: Invalid OTP for {email}")
         return jsonify({'message': 'Invalid OTP'}), 401
@@ -672,15 +656,19 @@ def reset_password():
 
     try:
         user.password = generate_password_hash(new_password)
-        
+
         # 6. Mark OTP as used (Delete it)
         db.session.delete(otp_record)
         db.session.commit()
-        
+
         print(f"[OK] Password reset successful for {email}")
         return jsonify({'message': 'Password reset successfully'}), 200
-        
+
     except Exception as e:
         db.session.rollback()
         print(f"[FAIL] DB ERROR in reset_password: {str(e)}")
         return jsonify({"error": "Database error", "message": str(e)}), 500
+
+@auth_bp.route("/test")
+def test():
+    return jsonify({"message": "Auth working"})

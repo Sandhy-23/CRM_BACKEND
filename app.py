@@ -71,6 +71,9 @@ app.config['MAIL_USE_TLS'] = os.getenv("MAIL_USE_TLS", "True") == "True"
 app.config['MAIL_USERNAME'] = os.getenv("MAIL_USERNAME")
 app.config['MAIL_PASSWORD'] = os.getenv("MAIL_PASSWORD")
 print("DATABASE URI:", app.config['SQLALCHEMY_DATABASE_URI'])
+# --- Add temporary code to check .env loading ---
+print(os.getenv("EXOTEL_SID"))
+
 socketio = SocketIO(app, cors_allowed_origins="*")
 print(f"[OK] Database URI: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
 
@@ -106,7 +109,7 @@ def load_user_context_from_token():
 db.init_app(app)
 jwt.init_app(app)
 mail.init_app(app)
-migrate = Migrate(app, db)
+migrate = Migrate(app, db) #Fix: Only migrate once
 
 app.register_blueprint(auth_bp, url_prefix="/auth")
 app.register_blueprint(social_bp, url_prefix="/api/auth")
