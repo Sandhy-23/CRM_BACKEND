@@ -2,9 +2,20 @@ import sys
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file in the same directory
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
+# --- Environment Loading & Debugging ---
+print("Python path:", sys.executable)
+print("Current Directory:", os.getcwd())
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+env_path = os.path.join(BASE_DIR, ".env")
+
+if os.path.exists(env_path):
+    print("Loading .env from:", env_path)
+    load_dotenv(dotenv_path=env_path)
+else:
+    print(f"[WARN] .env file not found at: {env_path}. Using system environment variables.")
+print("After loading:", os.getenv("TWILIO_ACCOUNT_SID"))
+    
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from flask import Flask, jsonify, g, request, send_from_directory
@@ -70,6 +81,11 @@ app.config['MAIL_PORT'] = int(os.getenv("MAIL_PORT", 587))
 app.config['MAIL_USE_TLS'] = os.getenv("MAIL_USE_TLS", "True") == "True"
 app.config['MAIL_USERNAME'] = os.getenv("MAIL_USERNAME")
 app.config['MAIL_PASSWORD'] = os.getenv("MAIL_PASSWORD")
+
+# --- DEBUG: Check if .env mail variables are loaded ---
+print("MAIL USER:", os.getenv("MAIL_USERNAME"))
+print("MAIL PASS:", os.getenv("MAIL_PASSWORD"))
+
 print("DATABASE URI:", app.config['SQLALCHEMY_DATABASE_URI'])
 # --- Add temporary code to check .env loading ---
 print(os.getenv("EXOTEL_SID"))
@@ -160,6 +176,13 @@ def handle_integrity_error(e):
 @app.errorhandler(405)
 def handle_method_not_allowed(e):
     return jsonify({"error": "Method not allowed", "message": "The method is not allowed for the requested URL."}), 405
+
+@app.errorhandler(415)
+def handle_unsupported_media_type(e):
+    return jsonify({
+        "error": "Unsupported Media Type",
+        "message": "Request must be 'application/json'. Please check your 'Content-Type' header."
+    }), 415
 
 @app.errorhandler(404)
 def not_found(e):

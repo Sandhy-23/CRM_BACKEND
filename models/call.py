@@ -5,6 +5,7 @@ class Call(db.Model):
     __tablename__ = 'call_logs'
 
     id = db.Column(db.Integer, primary_key=True)
+    agent_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     customer_number = db.Column(db.String(20))
     direction = db.Column(db.String(20)) # 'incoming' or 'outgoing'
     status = db.Column(db.String(50))
@@ -15,6 +16,7 @@ class Call(db.Model):
     def to_dict(self):
         return {
             "id": self.id,
+            "agent_id": self.agent_id,
             "customer_number": self.customer_number,
             "direction": self.direction,
             "status": self.status,

@@ -47,6 +47,12 @@ def send_email(to_email, subject, body):
     smtp_user = os.environ.get('MAIL_USERNAME')
     smtp_password = os.environ.get('MAIL_PASSWORD')
 
+    # Early exit if using placeholder credentials
+    if smtp_user == "yourgmail@gmail.com":
+        print("[FAIL] SMTP ERROR: You are using the placeholder email 'yourgmail@gmail.com'.")
+        print("   -> Please open your .env file and replace it with your actual Gmail address and App Password.")
+        return False
+
     if smtp_user and smtp_password:
         try:
             msg = MIMEMultipart()

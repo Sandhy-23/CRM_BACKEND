@@ -13,6 +13,7 @@ from models.attendance import Attendance
 from models.activity_log import ActivityLog
 from models.activity_logger import log_activity
 from sqlalchemy import extract
+import re
 import calendar
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -310,12 +311,16 @@ def create_employee(current_user):
     # Capture raw password for email notification
     raw_password = data.get("password", "Password@123")
 
+    mobile_number = data.get("mobile_number")
+    if mobile_number and not re.match(r'^91[6-9]\d{9}$', str(mobile_number)):
+        return jsonify({"error": "Invalid mobile number format. Must be 12 digits starting with 91 (e.g., 919876543210)."}), 400
+
     new_user = User(
         name=data.get("name"),
         email=email,
         password=generate_password_hash(raw_password),
         phone=data.get("phone"),
-        mobile_number=data.get("mobile_number"),
+        mobile_number=mobile_number,
         department=data.get("department"),
         designation=data.get("designation"),
         role=role,
@@ -432,7 +437,11 @@ def update_employee(current_user, user_id):
     # Fields anyone can update for themselves (or admins can update)
     if "name" in data: user.name = data["name"]
     if "phone" in data: user.phone = data["phone"]
-    if "mobile_number" in data: user.mobile_number = data["mobile_number"]
+    if "mobile_number" in data:
+        mobile = data.get("mobile_number")
+        if mobile and not re.match(r'^91[6-9]\d{9}$', str(mobile)):
+            return jsonify({"error": "Invalid mobile number format. Must be 12 digits starting with 91 (e.g., 919876543210)."}), 400
+        user.mobile_number = mobile
     
     # Fields only Admins/HR/Super Admin can update
     if is_admin_hr or is_super:
@@ -813,7 +822,7 @@ def get_revenue_growth(current_user):
     # Revenue Growth Chart
     # Matches: SELECT MONTHNAME(closed_at), SUM(amount) ... GROUP BY MONTH(closed_at)
     results = db.session.query(
-        func.strftime('%m', Deal.close_date).label('month_num'),
+        func.month(Deal.close_date).label('month_num'),
         func.sum(Deal.value)
     ).filter(
         func.lower(Deal.stage).in_(['won', 'closed won']),
@@ -948,7 +957,7 @@ def get_marketing_dashboard(current_user):
                 "leads": 0, # Placeholder for now
                 "conversion": "0%",
                 "revenue": f"₹{camp_rev}",
-                "date": c.created_at.strftime("%b %d, %Y") if c.created_at else ""
+                "date": c.created_at.strftime("%b %d, %Y") if c.created_at else None,
             })
 
         response = {

@@ -34,7 +34,7 @@ def get_revenue_analytics():
             month_index = int(row[0]) - 1
             revenue_data.append({
                 "name": months[month_index],
-                "revenue": row[1]
+                "revenue": row[1] or 0
             })
 
     return {"revenueData": revenue_data}
