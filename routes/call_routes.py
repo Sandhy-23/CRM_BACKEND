@@ -1,11 +1,11 @@
 from flask import Blueprint, request, jsonify
 from extensions import db
-from twilio.rest import Client
 from models.call import Call
 from models.crm import Lead
 from models.contact import Contact
 from models.user import User
 import os
+import requests
 from routes.auth_routes import token_required
 from datetime import datetime
 
@@ -36,120 +36,146 @@ def format_number(num):
 @token_required
 def make_call(current_user):
     data = request.get_json()
-    customer_number = data.get("phone_number")
+    customer_number = data.get("phone_number") # This is the lead/contact's number
 
     if not customer_number:
-        return jsonify({"error": "Phone number is required"}), 400
-
-    # Format customer number to E.164
-    formatted_customer_number = format_number(customer_number)
-
-    account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-    auth_token = os.getenv("TWILIO_AUTH_TOKEN")
-    twilio_number = os.getenv("TWILIO_PHONE_NUMBER")
-
-    # --- DEBUG: Check if .env variables are loaded ---
-    print("--- Twilio .env Variables ---")
-    print("SID:", account_sid)
-    print("TOKEN:", auth_token)
-    print("NUMBER:", twilio_number)
-    print("-----------------------------")
-
-    if not all([account_sid, auth_token, twilio_number]):
-        return jsonify({"error": "Twilio credentials are not configured on the server."}), 500
+        return jsonify({"error": "Customer phone number is required"}), 400
 
     try:
-        client = Client(account_sid, auth_token)
-        call = client.calls.create(
-            to=formatted_customer_number,
-            from_=twilio_number,
-            url="http://demo.twilio.com/docs/voice.xml"  # A simple TwiML for the outbound call
+        sid = os.getenv("EXOTEL_SID")
+        api_key = os.getenv("EXOTEL_API_KEY")
+        api_token = os.getenv("EXOTEL_API_TOKEN")
+        exophone = os.getenv("EXOTEL_PHONE_NUMBER")
+
+        if not all([sid, api_key, api_token, exophone]):
+            return jsonify({"error": "Exotel credentials are not fully configured on the server."}), 500
+
+        url = f"https://api.exotel.com/v1/Accounts/{sid}/Calls/connect.json"
+
+        payload = {
+            "From": customer_number,
+            "To": exophone,
+            "CallerId": exophone
+        }
+
+        api_response = requests.post(
+            url,
+            data=payload,
+            auth=(api_key, api_token)
         )
+        api_response.raise_for_status()
+        response_data = api_response.json()
+
+        # Extract details for logging
+        call_details = response_data.get('Call', {})
+        call_sid = call_details.get('Sid')
         
         # Log the outgoing call
         log = Call(
             agent_id=current_user.id,
-            customer_number=formatted_customer_number,
+            customer_number=customer_number,
             direction="outgoing",
-            status="initiated",
-            call_sid=call.sid
+            status=call_details.get('Status', 'initiated'),
+            call_sid=call_sid
         )
         db.session.add(log)
         db.session.commit()
 
         return jsonify({
             "message": "Call initiated successfully",
-            "call_sid": call.sid
+            "response": response_data
         }), 200
+
     except Exception as e:
-        # Twilio exceptions are useful, so log them
-        print(f"[FAIL] Twilio call failed: {str(e)}")
-        return jsonify({"error": "Failed to initiate call via Twilio", "details": str(e)}), 500
+        print(f"[FAIL] Exotel call failed: {str(e)}")
+        return jsonify({"error": "Failed to initiate call via Exotel", "details": str(e)}), 500
 
 @call_bp.route("/call-lead/<int:lead_id>", methods=["POST"])
 @token_required
 def call_lead(current_user, lead_id):
     lead = Lead.query.get_or_404(lead_id)
-    
-    # Reuse the make_call logic by mocking a request with the lead's phone
-    # Or better, just call the internal logic. For simplicity, we'll construct the payload.
-    # However, since make_call expects request.get_json(), we can't easily call it directly without context hacking.
-    # Instead, let's just return the phone number to the frontend to call /make-call, 
-    # OR (better) implement the logic here directly.
-    
-    # Let's use the direct logic to avoid round trips
+
     if not lead.phone:
         return jsonify({"error": "Lead has no phone number"}), 400
-        
-    # Mock the request data for the shared logic if we extracted it, 
-    # but here we will just call the make_call endpoint logic manually.
-    # To keep it DRY, we could extract the Exotel logic, but for now, let's just use the phone number.
-    
-    # We will return the number so the frontend can call /make-call. 
-    # This is often safer as it confirms intent. 
-    # BUT, the prompt asked for POST /call-lead/<id>. So we execute it here.
-    
-    # Create a dummy request context or just call the logic? 
-    # Let's just call the logic we wrote in make_call by passing data manually? No, Flask doesn't like that.
-    # We will duplicate the critical 5 lines of Exotel logic for clarity.
-    
-    # ... (Logic is identical to make_call, just getting number from Lead)
-    # For brevity in this diff, I will assume the frontend calls /make-call with the number.
-    # If you want backend-only:
-    return jsonify({"phone_number": lead.phone, "message": "Use /make-call with this number"}), 200
-    # Ideally, you'd extract the Exotel call logic into a service function (e.g., services/telephony.py)
-    # and call that function from both routes.
+
+    customer_number = lead.phone
+
+    try:
+        sid = os.getenv("EXOTEL_SID")
+        api_key = os.getenv("EXOTEL_API_KEY")
+        api_token = os.getenv("EXOTEL_API_TOKEN")
+        exophone = os.getenv("EXOTEL_PHONE_NUMBER")
+
+        if not all([sid, api_key, api_token, exophone]):
+            return jsonify({"error": "Exotel credentials are not fully configured on the server."}), 500
+
+        url = f"https://api.exotel.com/v1/Accounts/{sid}/Calls/connect.json"
+
+        payload = {
+            "From": customer_number,
+            "To": exophone,
+            "CallerId": exophone
+        }
+
+        api_response = requests.post(url, data=payload, auth=(api_key, api_token))
+        api_response.raise_for_status()
+        response_data = api_response.json()
+
+        call_details = response_data.get('Call', {})
+        call_sid = call_details.get('Sid')
+
+        # Log the outgoing call
+        log = Call(
+            agent_id=current_user.id,
+            customer_number=customer_number,
+            direction="outgoing",
+            status=call_details.get('Status', 'initiated'),
+            call_sid=call_sid
+        )
+        db.session.add(log)
+        db.session.commit()
+
+        return jsonify({"message": "Call initiated successfully to lead", "response": response_data}), 200
+
+    except Exception as e:
+        print(f"[FAIL] Exotel call failed for lead {lead_id}: {str(e)}")
+        return jsonify({"error": "Failed to initiate call via Exotel", "details": str(e)}), 500
 
 @call_bp.route("/incoming-call", methods=["POST"])
 def incoming_call():
     # Exotel sends data as form-data (application/x-www-form-urlencoded)
     caller = request.form.get("From")
-    virtual_number = request.form.get("To")
     call_sid = request.form.get("CallSid")
     status = request.form.get("CallStatus")
+    agent_number = request.form.get("DialWhomNumber") # Agent's number from Exotel
+
+    agent_id = None
+    agent = None
+    if agent_number:
+        formatted_agent_number = format_number(agent_number)
+        agent = User.query.filter((User.phone == formatted_agent_number) | (User.mobile_number == formatted_agent_number)).first()
+        if agent:
+            agent_id = agent.id
+            print(f"✅ Incoming call mapped to agent: {agent.name} (ID: {agent_id})")
     
     if caller:
-        # 1. Format Number
         formatted_caller = format_number(caller)
-        
-        # 2. Check if Lead Exists
-        # We check both raw and formatted to be safe
         lead = Lead.query.filter((Lead.phone == caller) | (Lead.phone == formatted_caller)).first()
         
         if not lead:
-            # 3. Auto-Create Lead
+            org_id = agent.organization_id if agent else 1 # Assign to agent's org or default
             lead = Lead(
                 name=f"Unknown Caller {formatted_caller}",
                 phone=formatted_caller,
                 source="Incoming Call",
                 status="New",
-                organization_id=1 # Default to Org 1 or find logic to assign
+                organization_id=org_id,
+                assigned_user_id=agent_id # Auto-assign lead to agent
             )
             db.session.add(lead)
             db.session.commit()
             print(f"✅ Auto-created lead for incoming call: {formatted_caller}")
 
-        # 4. Log Call
         log = Call(
             customer_number=formatted_caller,
             direction="incoming",

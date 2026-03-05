@@ -1,23 +1,20 @@
 import sys
 import os
 from dotenv import load_dotenv
-
-# --- Environment Loading & Debugging ---
-print("Python path:", sys.executable)
-print("Current Directory:", os.getcwd())
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-env_path = os.path.join(BASE_DIR, ".env")
-
-if os.path.exists(env_path):
-    print("Loading .env from:", env_path)
-    load_dotenv(dotenv_path=env_path)
-else:
-    print(f"[WARN] .env file not found at: {env_path}. Using system environment variables.")
-print("After loading:", os.getenv("TWILIO_ACCOUNT_SID"))
-    
+ 
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
+ 
+print("MAIL USER:", os.getenv("MAIL_USERNAME"))
+print("MAIL PASS:", os.getenv("MAIL_PASSWORD"))
+ 
+print("--- Exotel Variables ---")
+print("EXOTEL SID:", os.getenv("EXOTEL_SID"))
+print("EXOTEL KEY:", os.getenv("EXOTEL_API_KEY"))
+print("EXOTEL TOKEN:", os.getenv("EXOTEL_API_TOKEN"))
+print("AGENT NUMBER:", os.getenv("EXOTEL_AGENT_NUMBER"))
+print("------------------------")
+ 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 from flask import Flask, jsonify, g, request, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO
@@ -81,15 +78,6 @@ app.config['MAIL_PORT'] = int(os.getenv("MAIL_PORT", 587))
 app.config['MAIL_USE_TLS'] = os.getenv("MAIL_USE_TLS", "True") == "True"
 app.config['MAIL_USERNAME'] = os.getenv("MAIL_USERNAME")
 app.config['MAIL_PASSWORD'] = os.getenv("MAIL_PASSWORD")
-
-# --- DEBUG: Check if .env mail variables are loaded ---
-print("MAIL USER:", os.getenv("MAIL_USERNAME"))
-print("MAIL PASS:", os.getenv("MAIL_PASSWORD"))
-
-print("DATABASE URI:", app.config['SQLALCHEMY_DATABASE_URI'])
-# --- Add temporary code to check .env loading ---
-print(os.getenv("EXOTEL_SID"))
-
 socketio = SocketIO(app, cors_allowed_origins="*")
 print(f"[OK] Database URI: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
 
