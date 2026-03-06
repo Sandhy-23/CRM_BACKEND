@@ -56,14 +56,15 @@ def get_tickets(current_user):
     result = []
     for t in tickets:
         result.append({
-            "id": t.id,
             "ticket_number": t.ticket_number,
-            "subject": t.subject,
+            "ticket": t.subject,
+            "category": t.category,
             "priority": t.priority,
             "status": t.status,
-            "category": t.category,
-            "created_at": t.created_at.isoformat() if t.created_at else None,
-            "assigned_to": t.assignee.name if t.assignee else None
+            "sla_status": t.sla_due_at.isoformat() if t.sla_due_at else None,
+            "assignee": t.assignee.name if t.assignee else None,
+            "submitted_by": t.contact_id,
+            "last_updated": t.updated_at.isoformat() if getattr(t, 'updated_at', None) else None
         })
     
     return jsonify(result), 200

@@ -7,12 +7,6 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 print("MAIL USER:", os.getenv("MAIL_USERNAME"))
 print("MAIL PASS:", os.getenv("MAIL_PASSWORD"))
  
-print("--- Exotel Variables ---")
-print("EXOTEL SID:", os.getenv("EXOTEL_SID"))
-print("EXOTEL KEY:", os.getenv("EXOTEL_API_KEY"))
-print("EXOTEL TOKEN:", os.getenv("EXOTEL_API_TOKEN"))
-print("AGENT NUMBER:", os.getenv("EXOTEL_AGENT_NUMBER"))
-print("------------------------")
  
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from flask import Flask, jsonify, g, request, send_from_directory

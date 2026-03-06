@@ -32,64 +32,6 @@ def format_number(num):
     # Fallback: return the cleaned number, Twilio might handle it.
     return num
 
-@call_bp.route("/make-call", methods=["POST"])
-@token_required
-def make_call(current_user):
-    data = request.get_json()
-    customer_number = data.get("phone_number") # This is the lead/contact's number
-
-    if not customer_number:
-        return jsonify({"error": "Customer phone number is required"}), 400
-
-    try:
-        sid = os.getenv("EXOTEL_SID")
-        api_key = os.getenv("EXOTEL_API_KEY")
-        api_token = os.getenv("EXOTEL_API_TOKEN")
-        exophone = os.getenv("EXOTEL_PHONE_NUMBER")
-
-        if not all([sid, api_key, api_token, exophone]):
-            return jsonify({"error": "Exotel credentials are not fully configured on the server."}), 500
-
-        url = f"https://api.exotel.com/v1/Accounts/{sid}/Calls/connect.json"
-
-        payload = {
-            "From": customer_number,
-            "To": exophone,
-            "CallerId": exophone
-        }
-
-        api_response = requests.post(
-            url,
-            data=payload,
-            auth=(api_key, api_token)
-        )
-        api_response.raise_for_status()
-        response_data = api_response.json()
-
-        # Extract details for logging
-        call_details = response_data.get('Call', {})
-        call_sid = call_details.get('Sid')
-        
-        # Log the outgoing call
-        log = Call(
-            agent_id=current_user.id,
-            customer_number=customer_number,
-            direction="outgoing",
-            status=call_details.get('Status', 'initiated'),
-            call_sid=call_sid
-        )
-        db.session.add(log)
-        db.session.commit()
-
-        return jsonify({
-            "message": "Call initiated successfully",
-            "response": response_data
-        }), 200
-
-    except Exception as e:
-        print(f"[FAIL] Exotel call failed: {str(e)}")
-        return jsonify({"error": "Failed to initiate call via Exotel", "details": str(e)}), 500
-
 @call_bp.route("/call-lead/<int:lead_id>", methods=["POST"])
 @token_required
 def call_lead(current_user, lead_id):
@@ -104,17 +46,29 @@ def call_lead(current_user, lead_id):
         sid = os.getenv("EXOTEL_SID")
         api_key = os.getenv("EXOTEL_API_KEY")
         api_token = os.getenv("EXOTEL_API_TOKEN")
-        exophone = os.getenv("EXOTEL_PHONE_NUMBER")
+        agent_number = os.getenv("EXOTEL_AGENT_NUMBER")
+        caller_id = os.getenv("EXOTEL_CALLER_ID")
 
-        if not all([sid, api_key, api_token, exophone]):
+        # Debug print statements as requested
+        print("--- Exotel Debug (call-lead) ---")
+        print("EXOTEL SID:", sid)
+        print("EXOTEL KEY:", api_key)
+        print("EXOTEL TOKEN:", api_token)
+        print("AGENT:", agent_number)
+        print("CALLER ID:", caller_id)
+        print("--------------------------------")
+
+        if not all([sid, api_key, api_token, agent_number]):
             return jsonify({"error": "Exotel credentials are not fully configured on the server."}), 500
 
         url = f"https://api.exotel.com/v1/Accounts/{sid}/Calls/connect.json"
 
+        formatted_customer_number = format_number(customer_number)
+
         payload = {
-            "From": customer_number,
-            "To": exophone,
-            "CallerId": exophone
+            "From": formatted_customer_number,
+            "To": agent_number,
+            "CallerId": caller_id
         }
 
         api_response = requests.post(url, data=payload, auth=(api_key, api_token))
@@ -127,7 +81,7 @@ def call_lead(current_user, lead_id):
         # Log the outgoing call
         log = Call(
             agent_id=current_user.id,
-            customer_number=customer_number,
+            customer_number=formatted_customer_number,
             direction="outgoing",
             status=call_details.get('Status', 'initiated'),
             call_sid=call_sid

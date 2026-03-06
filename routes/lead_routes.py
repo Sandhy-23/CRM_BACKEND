@@ -14,9 +14,7 @@ def get_leads(current_user):
     Get all leads for the user's organization, ensuring data isolation.
     """
     try:
-        leads = Lead.query.filter_by(
-            organization_id=current_user.organization_id
-        ).all()
+        leads = Lead.query.filter_by(is_deleted=False).all()
 
         return jsonify([lead.to_dict() for lead in leads])
     except Exception as e:
@@ -33,7 +31,6 @@ def create_lead(current_user):
         name=data.get("name"),
         email=data.get("email"),
         phone=data.get("phone"),
-        company=data.get("company"),
         source=data.get("source"),
         status=data.get("status"),
         score=data.get("score"),
@@ -77,7 +74,6 @@ def update_lead(current_user, lead_id):
     lead.name = data.get("name", lead.name)
     lead.email = data.get("email", lead.email)
     lead.phone = data.get("phone", lead.phone)
-    lead.company = data.get("company", lead.company)
     lead.source = data.get("source", lead.source)
     lead.status = data.get("status", lead.status)
     lead.score = data.get("score", lead.score)
