@@ -1,13 +1,14 @@
 import sys
 import os
+import requests
 from dotenv import load_dotenv
  
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
  
-print("MAIL USER:", os.getenv("MAIL_USERNAME"))
-print("MAIL PASS:", os.getenv("MAIL_PASSWORD"))
- 
- 
+CASHFREE_APP_ID = os.getenv("CASHFREE_APP_ID")
+CASHFREE_SECRET_KEY = os.getenv("CASHFREE_SECRET_KEY")
+CASHFREE_BASE_URL = os.getenv("CASHFREE_BASE_URL")
+
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from flask import Flask, jsonify, g, request, send_from_directory
 from flask_cors import CORS
@@ -17,6 +18,7 @@ from extensions import db, jwt, mail
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy import text
 from routes import auth_bp, social_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp, lead_bp, deal_bp, note_file_bp, calendar_bp, activity_bp, inbox_bp, webhook_bp, channel_bp, message_bp, conversation_bp
+from routes.payment_routes import payment_bp
 from routes.campaign_routes import campaign_bp
 from routes.import_export_routes import import_export_bp
 from routes.chart_routes import chart_bp
@@ -59,6 +61,8 @@ import models.campaign_log # Register Campaign Log Model
 import models.whatsapp_log
 import models.landing_page
 import models.payment # Register Payment Model
+import models.payment_link # Register Payment Link Model
+import models.feedback # Register Feedback Model
 import models.state
 import models.branch
 
@@ -144,6 +148,7 @@ app.register_blueprint(marketing_analytics_bp)
 app.register_blueprint(team_management_bp)
 app.register_blueprint(sla_rule_bp)
 app.register_blueprint(ticket_bp, url_prefix="/api/tickets")
+app.register_blueprint(payment_bp)
 app.register_blueprint(analytics_bp)
 app.register_blueprint(profile_bp)
 app.register_blueprint(state_bp)
@@ -173,6 +178,58 @@ def not_found(e):
 @app.route('/uploads/<path:filename>')
 def uploaded_file(filename):
     return send_from_directory('uploads', filename)
+
+@app.route("/create-payment-link", methods=["POST"])
+def create_payment_link():
+
+    data = request.json
+
+    payload = {
+        "link_amount": data["link_amount"],
+        "link_currency": "INR",
+        "link_purpose": "CRM Deal Payment",
+        "customer_details": {
+            "customer_name": data["customer_name"],
+            "customer_email": data["customer_email"],
+            "customer_phone": data["customer_phone"]
+        }
+    }
+
+    headers = {
+        "x-client-id": CASHFREE_APP_ID,
+        "x-client-secret": CASHFREE_SECRET_KEY,
+        "x-api-version": "2022-09-01",
+        "Content-Type": "application/json"
+    }
+
+    url = f"{CASHFREE_BASE_URL}/pg/links"
+
+    response = requests.post(url, json=payload, headers=headers)
+
+    print(response.text)
+
+    return jsonify(response.json())
+
+@app.route("/api/feedback", methods=["POST"])
+def create_feedback():
+    data = request.json
+
+    try:
+        new_feedback = models.feedback.Feedback(
+            user_id=data.get("user_id"),
+            rating=data.get("rating"),
+            comment=data.get("comment"),
+            email=data.get("email"),         # From Step 8 (Optional)
+            page_name=data.get("page_name")  # From Step 8 (Optional)
+        )
+
+        db.session.add(new_feedback)
+        db.session.commit()
+
+        return jsonify({"message": "Feedback saved successfully"}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 with app.app_context():
     # db.drop_all() # Uncomment this ONLY if you need to reset the DB completely
