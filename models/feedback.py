@@ -6,6 +6,7 @@ class Feedback(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, nullable=True)
+    contact_id = db.Column(db.Integer, db.ForeignKey('contacts.id'), nullable=True) # Added to link feedback to customer
     email = db.Column(db.String(100), nullable=True)
     rating = db.Column(db.Integer)
     comment = db.Column(db.Text)

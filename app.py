@@ -41,6 +41,8 @@ from analytics_routes import analytics_bp
 from routes.profile_routes import profile_bp
 from routes.state_routes import state_bp
 from routes.user_routes import user_bp
+from routes.audit_logs import audit_log_bp
+from routes.customer_health_routes import customer_health_bp
 from config import Config
 from models.crm import Deal
 import models
@@ -63,6 +65,8 @@ import models.landing_page
 import models.payment # Register Payment Model
 import models.payment_link # Register Payment Link Model
 import models.feedback # Register Feedback Model
+import models.audit_log # Register Audit Log Model
+import models.customer_health # Register Customer Health Model
 import models.state
 import models.branch
 
@@ -153,6 +157,8 @@ app.register_blueprint(analytics_bp)
 app.register_blueprint(profile_bp)
 app.register_blueprint(state_bp)
 app.register_blueprint(user_bp)
+app.register_blueprint(audit_log_bp)
+app.register_blueprint(customer_health_bp)
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):
