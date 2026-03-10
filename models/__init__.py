@@ -11,3 +11,4 @@ from .ticket import Ticket, TicketComment
 from .sla_rule import SLARule
 
 from .payment import Payment
+from .team_user import TeamUser, Permission, UserPermission

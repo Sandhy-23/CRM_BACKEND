@@ -14,7 +14,7 @@ from flask import Flask, jsonify, g, request, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO
 from flask_migrate import Migrate
-from extensions import db, jwt, mail
+from extensions import db, jwt, mail, bcrypt
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy import text
 from routes import auth_bp, social_bp, website_bp, dashboard_bp, plan_bp, quick_actions_bp, contact_bp, lead_bp, deal_bp, note_file_bp, calendar_bp, activity_bp, inbox_bp, webhook_bp, channel_bp, message_bp, conversation_bp
@@ -41,6 +41,7 @@ from analytics_routes import analytics_bp
 from routes.profile_routes import profile_bp
 from routes.state_routes import state_bp
 from routes.user_routes import user_bp
+from routes.team_user_routes import team_user_bp
 from routes.audit_logs import audit_log_bp
 from routes.customer_health_routes import customer_health_bp
 from config import Config
@@ -69,6 +70,7 @@ import models.audit_log # Register Audit Log Model
 import models.customer_health # Register Customer Health Model
 import models.state
 import models.branch
+import models.team_user
 
 
 
@@ -115,6 +117,7 @@ def load_user_context_from_token():
 db.init_app(app)
 jwt.init_app(app)
 mail.init_app(app)
+bcrypt.init_app(app)
 migrate = Migrate(app, db) #Fix: Only migrate once
 
 app.register_blueprint(auth_bp, url_prefix="/auth")
@@ -142,7 +145,7 @@ app.register_blueprint(inbox_bp)
 app.register_blueprint(webhook_bp)
 app.register_blueprint(channel_bp)
 app.register_blueprint(team_bp)
-app.register_blueprint(message_bp)
+app.register_blueprint(message_bp) 
 app.register_blueprint(conversation_bp)
 app.register_blueprint(campaign_bp)
 app.register_blueprint(drip_bp)
@@ -157,6 +160,7 @@ app.register_blueprint(analytics_bp)
 app.register_blueprint(profile_bp)
 app.register_blueprint(state_bp)
 app.register_blueprint(user_bp)
+app.register_blueprint(team_user_bp)
 app.register_blueprint(audit_log_bp)
 app.register_blueprint(customer_health_bp)
 

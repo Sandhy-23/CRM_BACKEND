@@ -1,95 +1,130 @@
 from flask import Blueprint, request, jsonify
 from extensions import db
 from models.campaign import Campaign
+from models.campaign_log import CampaignLog
 from routes.auth_routes import token_required
 from datetime import datetime
 
-campaign_bp = Blueprint('campaigns', __name__, url_prefix="/api/campaigns")
+campaign_bp = Blueprint("campaign", __name__, url_prefix="/api/campaign")
 
-def serialize_campaign(c):
-    return {
-        "id": c.id,
-        "name": c.name,
-        "channel": c.channel,
-        "status": c.status,
-        "color": c.color,
-        "month": c.month,
-        "year": c.year,
-        "config": c.config,
-        "whatsappConfig": c.whatsapp_config,
-        "branch": c.branch,
-        "budget": c.budget,
-        "revenue": getattr(c, 'revenue', 0.0),
-        "createdAt": c.created_at.isoformat() if c.created_at else None,
-        "updatedAt": c.updated_at.isoformat() if c.updated_at else None
-    }
-
-@campaign_bp.route('/', methods=['GET'], strict_slashes=False)
-@token_required
-def get_campaigns(current_user):
-    query = Campaign.query.filter_by(organization_id=current_user.organization_id)
-
-    month = request.args.get("month")
-    year = request.args.get("year")
-    channel = request.args.get("channel")
-    status = request.args.get("status")
-    branch = request.args.get("branch")
-
-    if month:
-        query = query.filter_by(month=int(month))
-    if year:
-        query = query.filter_by(year=int(year))
-    if channel:
-        query = query.filter_by(channel=channel)
-    if status:
-        query = query.filter_by(status=status)
-    if branch:
-        query = query.filter_by(branch=branch)
-
-    campaigns = query.order_by(Campaign.created_at.desc()).all()
-    return jsonify([serialize_campaign(c) for c in campaigns]), 200
-
-@campaign_bp.route('/', methods=['POST'], strict_slashes=False)
+@campaign_bp.route("/create", methods=["POST"])
 @token_required
 def create_campaign(current_user):
-    try:
-        data = request.get_json()
-        
-        new_campaign = Campaign(
-            name=data["name"],
-            channel=data["channel"],
-            status=data.get("status", "Draft"),
-            month=data.get("month"),
-            year=data.get("year"),
-            branch=data.get("branch"),
-            whatsapp_config=data.get("whatsappConfig"),
-            budget=float(data.get("budget", 0)),
-            revenue=float(data.get("revenue", 0)),
-            organization_id=current_user.organization_id,
-            created_by=current_user.id
-        )
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No JSON body provided"}), 400
 
-        db.session.add(new_campaign)
-        db.session.commit()
+    name = data.get("name")
+    if not name:
+        return jsonify({"error": "Campaign name is required"}), 400
 
-        return jsonify(serialize_campaign(new_campaign)), 201
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+    month_value = data.get("month")
 
-@campaign_bp.route('/<string:campaign_id>/status', methods=['PATCH'])
-@token_required
-def update_status(current_user, campaign_id):
-    campaign = Campaign.query.filter_by(id=campaign_id, organization_id=current_user.organization_id).first_or_404()
-    campaign.status = request.json["status"]
+    # As per your instruction, handle both month name and number
+    if isinstance(month_value, str):
+        month_map = {
+            "January": 1, "February": 2, "March": 3, "April": 4,
+            "May": 5, "June": 6, "July": 7, "August": 8,
+            "September": 9, "October": 10, "November": 11, "December": 12
+        }
+        # Use .get() for safety, returns None if not found
+        month_value = month_map.get(month_value.capitalize())
+
+    # After conversion, if month is still not a valid number, you could add another check
+    if month_value is None or not isinstance(month_value, int):
+        return jsonify({"error": "A valid month (name or number) is required"}), 400
+
+    campaign = Campaign(
+        name=name,
+        channel=data.get("channel"),
+        status=data.get("status"),
+        month=month_value,
+        year=data.get("year"),
+        color=data.get("color"),
+        created_by=current_user.id,
+        organization_id=current_user.organization_id
+    )
+    db.session.add(campaign)
     db.session.commit()
-    return jsonify({"message": "Status updated"})
+    return jsonify({
+        "message": "Campaign created successfully",
+        "campaign_id": campaign.id
+    }), 201
 
-@campaign_bp.route('/<string:campaign_id>/config', methods=['PUT'])
+@campaign_bp.route("/whatsapp-config/<int:id>", methods=["POST"])
 @token_required
-def save_config(current_user, campaign_id):
-    campaign = Campaign.query.filter_by(id=campaign_id, organization_id=current_user.organization_id).first_or_404()
-    campaign.config = request.json["config"]
+def save_whatsapp_config(current_user, id):
+    campaign = Campaign.query.get(id)
+    data = request.json
+    campaign.whatsapp_config = {
+        "message_type": data.get("message_type"),
+        "audience": data.get("audience"),
+        "message": data.get("message")
+    }
+    db.session.commit()
+    return jsonify({"message": "Configuration saved"})
+
+@campaign_bp.route("/schedule/<int:id>", methods=["POST"])
+@token_required
+def schedule_campaign(current_user, id):
+    campaign = Campaign.query.get(id)
+    data = request.json
+    campaign.scheduled_at = datetime.strptime(
+        data.get("scheduled_at"),
+        "%Y-%m-%d %H:%M:%S"
+    )
+    campaign.status = "Scheduled"
+    db.session.commit()
+    return jsonify({"message": "Campaign scheduled"})
+
+@campaign_bp.route("/send/<int:id>", methods=["POST"])
+@token_required
+def send_campaign(current_user, id):
+    campaign = Campaign.query.get(id)
+    # Mock contact list as per plan
+    contacts = [1, 2, 3, 4]
+    for contact in contacts:
+        log = CampaignLog(
+            campaign_id=id,
+            contact_id=contact,
+            status="sent",
+            channel=campaign.channel
+        )
+        db.session.add(log)
     campaign.status = "Running"
     db.session.commit()
-    return jsonify(serialize_campaign(campaign))
+    return jsonify({"message": "Campaign sent"})
+
+@campaign_bp.route("/list", methods=["GET"])
+@token_required
+def get_campaigns(current_user):
+    campaigns = Campaign.query.filter_by(organization_id=current_user.organization_id).all()
+    result = []
+    for c in campaigns:
+        result.append({
+            "id": c.id,
+            "name": c.name,
+            "channel": c.channel,
+            "status": c.status,
+            "month": c.month,
+            "year": c.year
+        })
+    return jsonify(result)
+
+@campaign_bp.route("/stats/<int:id>")
+@token_required
+def campaign_stats(current_user, id):
+    sent = CampaignLog.query.filter_by(campaign_id=id).count()
+    opened = CampaignLog.query.filter_by(
+        campaign_id=id,
+        opened=True
+    ).count()
+    clicked = CampaignLog.query.filter_by(
+        campaign_id=id,
+        clicked=True
+    ).count()
+    return jsonify({
+        "sent": sent,
+        "opened": opened,
+        "clicked": clicked
+    })

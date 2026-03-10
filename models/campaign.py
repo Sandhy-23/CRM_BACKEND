@@ -6,7 +6,7 @@ import uuid
 class Campaign(db.Model):
     __tablename__ = "campaigns"
 
-    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False)
     channel = db.Column(db.String(50), nullable=False) # Email | WhatsApp | Social
     status = db.Column(db.String(50), default='Draft') # Draft | Running | Scheduled | Completed | Failed
