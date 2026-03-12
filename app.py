@@ -44,6 +44,7 @@ from routes.user_routes import user_bp
 from routes.team_user_routes import team_user_bp
 from routes.audit_logs import audit_log_bp
 from routes.customer_health_routes import customer_health_bp
+from routes.sales_rules_routes import sales_rules_bp
 from config import Config
 from models.crm import Deal
 import models
@@ -71,6 +72,7 @@ import models.customer_health # Register Customer Health Model
 import models.state
 import models.branch
 import models.team_user
+import models.sales_rule
 
 
 
@@ -163,6 +165,7 @@ app.register_blueprint(user_bp)
 app.register_blueprint(team_user_bp)
 app.register_blueprint(audit_log_bp)
 app.register_blueprint(customer_health_bp)
+app.register_blueprint(sales_rules_bp)
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):
