@@ -13,3 +13,4 @@ from .sla_rule import SLARule
 from .payment import Payment
 from .team_user import TeamUser, Permission, UserPermission
 from .sales_rule import SalesRule
+from .subscription import Subscription
