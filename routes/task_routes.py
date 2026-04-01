@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 task_bp = Blueprint('tasks', __name__)
 
-@task_bp.route('/api/tasks', methods=['POST'])
+@task_bp.route('/tasks', methods=['POST'])
 @token_required
 def create_task(current_user):
     data = request.get_json()
@@ -33,27 +33,17 @@ def create_task(current_user):
                 # Return 400 if the date format is completely invalid
                 return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD, "Today", or "Tomorrow"'}), 400
 
-    # Handle Related To (Sanitize input)
-    # If 'related_to' is garbage like "haha", we ignore it to prevent DB errors.
-    related_to = data.get('related_to')
-    lead_id = None
-    
-    if related_to and str(related_to).isdigit():
-        lead_id = int(related_to)
 
-    try:
-        new_task = Task(
+    new_task = Task(
             title=title,
             description=data.get('description'),
-            priority=data.get('priority', 'Medium'),
+            status=data.get('status', 'pending'),
+            priority=data.get('priority', 'medium'),
             due_date=task_date,
-            status='Pending',
-            company_id=current_user.organization_id,
             created_by=current_user.id,
-            lead_id=lead_id,
-            assigned_to=data.get('assigned_to')
         )
         
+    try:
         db.session.add(new_task)
         db.session.commit()
         
@@ -72,38 +62,78 @@ def create_task(current_user):
         print(f"[FAIL] Task Creation Error: {e}")
         return jsonify({'error': 'Database error', 'message': str(e)}), 500
 
-@task_bp.route('/api/tasks', methods=['GET'])
+@task_bp.route('/tasks', methods=['GET'])
 @token_required
 def get_tasks(current_user):
-    tasks = Task.query.filter_by(company_id=current_user.organization_id).order_by(Task.created_at.desc()).all()
+    tasks = Task.query.order_by(Task.created_at.desc()).all()
     return jsonify([{
         'id': t.id,
         'title': t.title,
-        'priority': t.priority,
-        'due_date': str(t.due_date) if t.due_date else None,
-        'status': t.status
+        'description': t.description,
+        'priority': t.priority.lower() if t.priority else 'medium',
+        'due_date': t.due_date.strftime('%Y-%m-%d') if t.due_date else None,
+        'status': t.status.lower() if t.status else 'pending'
     } for t in tasks]), 200
 
-@task_bp.route('/api/tasks/<int:task_id>', methods=['DELETE'])
+@task_bp.route('/tasks/<int:id>', methods=['PUT'])
 @token_required
-def delete_task(current_user, task_id):
-    task = Task.query.filter_by(id=task_id, company_id=current_user.organization_id).first()
+def update_task(current_user, id):
+    data = request.get_json()
+
+    task = Task.query.get(id)
     if not task:
-        return jsonify({'error': 'Task not found'}), 404
-        
+        return jsonify({"error": "Task not found"}), 404
+
+    # Update status properly with validation
+    if "status" in data:
+        status_val = data["status"].lower()
+        if status_val not in ["pending", "completed"]:
+            return jsonify({"error": "Invalid status. Use 'pending' or 'completed'."}), 400
+        task.status = status_val
+
+    # Optional other fields
+    if "title" in data: task.title = data["title"]
+    if "description" in data: task.description = data["description"]
+    if "priority" in data: task.priority = data["priority"]
+
+    if 'due_date' in data:
+        due_date_str = data.get('due_date')
+        if due_date_str:
+            try:
+                # Handle "Today", "Tomorrow" logic if sent in update, or standard date
+                if due_date_str.lower() == 'today': task.due_date = datetime.utcnow().date()
+                elif due_date_str.lower() == 'tomorrow': task.due_date = datetime.utcnow().date() + timedelta(days=1)
+                else: task.due_date = datetime.strptime(due_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                pass # Keep old date if invalid
+        else:
+            task.due_date = None # Clear date if empty string sent
+
+    db.session.commit()
+
+    return jsonify({"message": "Task updated successfully"})
+
+@task_bp.route('/tasks/<int:id>', methods=['DELETE'])
+@token_required
+def delete_task(current_user, id):
+    task = Task.query.get(id)
+
+    if not task:
+        return jsonify({"error": "Task not found"}), 404
+
     db.session.delete(task)
     db.session.commit()
-    return jsonify({'message': 'Task deleted'}), 200
+    return jsonify({"message": "Task deleted"})
 
-@task_bp.route('/api/tasks/my', methods=['GET'])
+@task_bp.route('/tasks/my', methods=['GET'])
 @token_required
 def get_my_tasks(current_user):
-    tasks = Task.query.filter_by(assigned_to=current_user.id, company_id=current_user.organization_id).order_by(Task.created_at.desc()).all()
+    tasks = Task.query.filter_by(created_by=current_user.id).order_by(Task.created_at.desc()).all()
     return jsonify([{
         'id': t.id,
         'title': t.title,
-        'priority': t.priority,
-        'due_date': str(t.due_date) if t.due_date else None,
-        'status': t.status,
-        'description': t.description
+        'priority': t.priority.lower() if t.priority else 'medium',
+        'due_date': t.due_date.strftime('%Y-%m-%d') if t.due_date else None,
+        'description': t.description,
+        'status': t.status.lower() if t.status else 'pending'
     } for t in tasks]), 200

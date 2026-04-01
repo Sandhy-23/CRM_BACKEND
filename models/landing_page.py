@@ -10,7 +10,7 @@ class LandingPage(db.Model):
     name = db.Column(db.String(255), nullable=False)
     slug = db.Column(db.String(255), unique=True, nullable=False)
     campaign = db.Column(db.String(255), nullable=True)
-    status = db.Column(db.String(20), default="Draft")
+    status = db.Column(db.String(50), default="Draft")
     
     leads = db.Column(db.Integer, default=0)
     conversion = db.Column(db.String(20), default="0%")
@@ -23,3 +23,13 @@ class LandingPage(db.Model):
     organization_id = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class FormSubmission(db.Model):
+    __tablename__ = "form_submissions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    form_id = db.Column(db.String(36), db.ForeignKey('landing_pages.id'), nullable=False)
+    name = db.Column(db.String(100))
+    email = db.Column(db.String(120))
+    status = db.Column(db.String(50), default="New")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)

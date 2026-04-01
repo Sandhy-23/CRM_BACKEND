@@ -1,28 +1,27 @@
-import sqlite3
-from flask import current_app
-
-
-def get_connection():
-    return sqlite3.connect("crm.db")
-
+from extensions import db
+from sqlalchemy import text
 
 # -------------------- REVENUE --------------------
 
 def get_revenue_analytics():
-    conn = get_connection()
-    cursor = conn.cursor()
+    engine_name = db.engine.name
+    if engine_name == 'mysql':
+        month_func = "MONTH(close_date)"
+    else:  # sqlite
+        month_func = "strftime('%m', close_date)"
 
-    cursor.execute("""
-        SELECT strftime('%m', closed_at) as month,
+    query = text(f"""
+        SELECT {month_func} as month,
                SUM(value)
         FROM deals
         WHERE stage = 'Won'
         GROUP BY month
         ORDER BY month
     """)
-
-    rows = cursor.fetchall()
-    conn.close()
+    
+    with db.engine.connect() as connection:
+        result = connection.execute(query)
+        rows = result.fetchall()
 
     months = ["Jan","Feb","Mar","Apr","May","Jun",
               "Jul","Aug","Sep","Oct","Nov","Dec"]
@@ -43,34 +42,30 @@ def get_revenue_analytics():
 # -------------------- PIPELINE --------------------
 
 def get_pipeline_analytics():
-    conn = get_connection()
-    cursor = conn.cursor()
+    with db.engine.connect() as connection:
+        # Deals by stage
+        stages_result = connection.execute(text("SELECT stage, COUNT(*) FROM deals GROUP BY stage"))
+        stages = stages_result.fetchall()
 
-    # Deals by stage
-    cursor.execute("SELECT stage, COUNT(*) FROM deals GROUP BY stage")
-    stages = cursor.fetchall()
+        # Win vs Loss
+        win_row = connection.execute(text("SELECT COUNT(*) FROM deals WHERE stage='Won'")).fetchone()
+        win = win_row[0] if win_row else 0
 
-    # Win vs Loss
-    cursor.execute("SELECT COUNT(*) FROM deals WHERE stage='Won'")
-    win = cursor.fetchone()[0]
+        loss_row = connection.execute(text("SELECT COUNT(*) FROM deals WHERE stage='Lost'")).fetchone()
+        loss = loss_row[0] if loss_row else 0
 
-    cursor.execute("SELECT COUNT(*) FROM deals WHERE stage='Lost'")
-    loss = cursor.fetchone()[0]
+        # Funnel
+        total_leads_row = connection.execute(text("SELECT COUNT(*) FROM leads")).fetchone()
+        total_leads = total_leads_row[0] if total_leads_row else 0
 
-    # Funnel
-    cursor.execute("SELECT COUNT(*) FROM leads")
-    total_leads = cursor.fetchone()[0]
+        qualified_row = connection.execute(text("SELECT COUNT(*) FROM leads WHERE status != 'New'")).fetchone()
+        qualified = qualified_row[0] if qualified_row else 0
 
-    cursor.execute("SELECT COUNT(*) FROM leads WHERE status != 'New'")
-    qualified = cursor.fetchone()[0]
+        proposed_row = connection.execute(text("SELECT COUNT(*) FROM deals WHERE stage='Proposal'")).fetchone()
+        proposed = proposed_row[0] if proposed_row else 0
 
-    cursor.execute("SELECT COUNT(*) FROM deals WHERE stage='Proposal'")
-    proposed = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM deals WHERE stage='Negotiation'")
-    negotiating = cursor.fetchone()[0]
-
-    conn.close()
+        negotiating_row = connection.execute(text("SELECT COUNT(*) FROM deals WHERE stage='Negotiation'")).fetchone()
+        negotiating = negotiating_row[0] if negotiating_row else 0
 
     return {
         "pipelineStages": [
@@ -93,28 +88,32 @@ def get_pipeline_analytics():
 # -------------------- LEADS --------------------
 
 def get_lead_analytics():
-    conn = get_connection()
-    cursor = conn.cursor()
+    engine_name = db.engine.name
+    if engine_name == 'mysql':
+        week_func = "WEEK(created_at, 1)"
+    else:  # sqlite
+        week_func = "strftime('%W', created_at)"
 
-    # Source
-    cursor.execute("SELECT source, COUNT(*) FROM leads GROUP BY source")
-    sources = cursor.fetchall()
-
-    # Status
-    cursor.execute("SELECT status, COUNT(*) FROM leads GROUP BY status")
-    statuses = cursor.fetchall()
-
-    # Trend (Weekly)
-    cursor.execute("""
-        SELECT strftime('%W', created_at) as week,
+    trend_query = text(f"""
+        SELECT {week_func} as week,
                COUNT(*)
         FROM leads
         GROUP BY week
         ORDER BY week
     """)
-    trends = cursor.fetchall()
 
-    conn.close()
+    with db.engine.connect() as connection:
+        # Source
+        sources_result = connection.execute(text("SELECT source, COUNT(*) FROM leads GROUP BY source"))
+        sources = sources_result.fetchall()
+
+        # Status
+        statuses_result = connection.execute(text("SELECT status, COUNT(*) FROM leads GROUP BY status"))
+        statuses = statuses_result.fetchall()
+
+        # Trend (Weekly)
+        trends_result = connection.execute(trend_query)
+        trends = trends_result.fetchall()
 
     return {
         "leadSourceData": [
@@ -132,34 +131,46 @@ def get_lead_analytics():
 # -------------------- KPI --------------------
 
 def get_kpi_analytics():
-    conn = get_connection()
-    cursor = conn.cursor()
+    engine_name = db.engine.name
+    
+    with db.engine.connect() as connection:
+        total_leads_row = connection.execute(text("SELECT COUNT(*) FROM leads")).fetchone()
+        total_leads = total_leads_row[0] if total_leads_row else 0
 
-    cursor.execute("SELECT COUNT(*) FROM leads")
-    total_leads = cursor.fetchone()[0]
+        won_deals_row = connection.execute(text("SELECT COUNT(*) FROM deals WHERE stage='Won'")).fetchone()
+        won_deals = won_deals_row[0] if won_deals_row else 0
+        
+        # Added for Dashboard Summary Cards
+        if engine_name == 'sqlite':
+             # SQLite doesn't strictly enforce case sensitivity like MySQL might depending on collation, but safer to be explicit
+             active_deals_row = connection.execute(text("SELECT COUNT(*) FROM deals WHERE status != 'won' AND status != 'lost'")).fetchone()
+        else:
+             active_deals_row = connection.execute(text("SELECT COUNT(*) FROM deals WHERE status != 'won' AND status != 'lost'")).fetchone()
+        active_deals = active_deals_row[0] if active_deals_row else 0
 
-    cursor.execute("SELECT COUNT(*) FROM deals WHERE stage='Won'")
-    won_deals = cursor.fetchone()[0]
+        revenue_row = connection.execute(text("SELECT SUM(value) FROM deals WHERE stage='Won'")).fetchone()
+        total_revenue = revenue_row[0] if revenue_row and revenue_row[0] else 0
 
-    conversion = 0
-    if total_leads > 0:
-        conversion = round((won_deals / total_leads) * 100, 2)
+        conversion = 0
+        if total_leads > 0:
+            conversion = round((won_deals / total_leads) * 100, 2)
 
-    # Assuming 'activities' table exists or using 'tasks' as proxy based on existing models
-    # Using 'tasks' table as per existing context
-    cursor.execute("SELECT COUNT(*) FROM tasks")
-    total_activities = cursor.fetchone()[0]
+        # Assuming 'activities' table exists or using 'tasks' as proxy based on existing models
+        # Using 'tasks' table as per existing context
+        total_activities_row = connection.execute(text("SELECT COUNT(*) FROM tasks")).fetchone()
+        total_activities = total_activities_row[0] if total_activities_row else 0
 
-    cursor.execute("SELECT COUNT(*) FROM tasks WHERE status='Completed'")
-    completed = cursor.fetchone()[0]
+        # Task status removed, defaulting completed to 0
+        completed = 0
 
-    task_percent = 0
-    if total_activities > 0:
-        task_percent = round((completed / total_activities) * 100, 2)
-
-    conn.close()
+        task_percent = 0
+        if total_activities > 0:
+            task_percent = round((completed / total_activities) * 100, 2)
 
     return {
+        "totalLeads": total_leads,
+        "activeDeals": active_deals,
+        "totalRevenue": total_revenue,
         "kpis": {
             "leadConversion": {
                 "value": f"{conversion}%",
@@ -183,3 +194,28 @@ def get_kpi_analytics():
             }
         }
     }
+
+# -------------------- RECENT ACTIVITIES --------------------
+
+def get_recent_activities():
+    # Queries the audit_logs table for the latest actions
+    query = text("""
+        SELECT id, action, module, user_name, created_at, record_name
+        FROM audit_logs
+        ORDER BY created_at DESC
+        LIMIT 10
+    """)
+    
+    with db.engine.connect() as connection:
+        rows = connection.execute(query).fetchall()
+        
+    return [
+        {
+            "id": row[0],
+            "action": f"{row[1]} {row[2]}", # e.g. "Created Lead"
+            "user": row[3] or "System",
+            "details": row[5],
+            "time": row[4].strftime("%Y-%m-%d %H:%M") if row[4] else ""
+        }
+        for row in rows
+    ]

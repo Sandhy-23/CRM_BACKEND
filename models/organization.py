@@ -23,7 +23,7 @@ class Organization(db.Model):
     founded_year = db.Column(db.String(10))
     hq = db.Column(db.String(100))
     legal_name = db.Column(db.String(150))
-    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), unique=True, nullable=True)
     
     plan_id = db.Column(db.Integer, db.ForeignKey('plans.id'), nullable=True)
     plan = db.relationship('Plan')

@@ -6,7 +6,7 @@ def create_env():
     
     # Switching to root user as requested for troubleshooting.
     db_user = "root"
-    db_pass = "root"
+    db_pass = "1234"
     
     env_content = f'DATABASE_URL=mysql+pymysql://{db_user}:{db_pass}@localhost/crm_db\n'
     env_content += 'FLASK_APP=app.py\n'

@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 from routes.auth_routes import token_required, send_email
 from models.user import User, LoginHistory
 from models.organization import Organization
@@ -11,10 +11,13 @@ from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash
 from models.attendance import Attendance
 from models.activity_log import ActivityLog
+from models.audit_log import AuditLog
 from models.activity_logger import log_activity
 from sqlalchemy import extract
 import re
 import calendar
+import json
+from services.email_service import send_user_email
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -22,7 +25,7 @@ dashboard_bp = Blueprint("dashboard", __name__)
 @dashboard_bp.route("/<org_name>/superadmin/dashboard", methods=["GET"])
 @token_required
 def super_admin_dashboard(current_user, org_name):
-    if current_user.role != "SUPER_ADMIN":
+    if current_user.role != "Super Admin":
         return jsonify({"message": f"Unauthorized. You are logged in as '{current_user.role}', but this route requires 'Super Admin'."}), 403
     
     # 1. Global Metrics (Aggregated from DB)
@@ -64,7 +67,7 @@ def super_admin_dashboard(current_user, org_name):
 @dashboard_bp.route("/<org_name>/admin/dashboard", methods=["GET"])
 @token_required
 def admin_dashboard(current_user, org_name):
-    if current_user.role not in ["ADMIN", "SUPER_ADMIN"]:
+    if current_user.role not in ["ADMIN", "Super Admin"]:
         return jsonify({"message": "Unauthorized"}), 403
     
     # Admin sees users in their Organization (or all if logic dictates, here we show Org view)
@@ -95,7 +98,7 @@ def admin_dashboard(current_user, org_name):
 @dashboard_bp.route("/<org_name>/hr/dashboard", methods=["GET"])
 @token_required
 def hr_dashboard(current_user, org_name):
-    if current_user.role not in ["HR", "ADMIN", "SUPER_ADMIN"]:
+    if current_user.role not in ["HR", "ADMIN", "Super Admin"]:
         return jsonify({"message": "Unauthorized"}), 403
     
     # HR sees only users in their own Organization
@@ -125,7 +128,7 @@ def hr_dashboard(current_user, org_name):
 @dashboard_bp.route("/<org_name>/manager/dashboard", methods=["GET"])
 @token_required
 def manager_dashboard(current_user, org_name):
-    if current_user.role not in ["MANAGER", "ADMIN", "SUPER_ADMIN"]:
+    if current_user.role not in ["MANAGER", "ADMIN", "Super Admin"]:
         return jsonify({"message": "Unauthorized"}), 403
     
     # Manager sees employees in their own department within the org
@@ -209,7 +212,7 @@ def get_kpis(current_user):
     Returns KPI metrics for the dashboard.
     Query Param: ?period=today|month|year (default: all)
     """
-    if current_user.role != "SUPER_ADMIN":
+    if current_user.role != "Super Admin":
         return jsonify({"message": "Unauthorized. KPI data is visible only to Super Admin."}), 403
 
     # 1. Determine Date Range
@@ -260,115 +263,38 @@ def get_kpis(current_user):
 @dashboard_bp.route("/users", methods=["POST"])
 @dashboard_bp.route("/employees", methods=["POST"])
 @token_required
-def create_employee(current_user):
-    """
-    Create Employee.
-    Allowed roles: Super Admin, Admin, HR, Manager.
-    """
-    if current_user.role not in ["SUPER_ADMIN", "ADMIN", "HR", "MANAGER"]:
-        return jsonify({"message": "Unauthorized. Only Super Admin, Admin, HR, or Manager can create users."}), 403
-
+def create_user(current_user):
     data = request.get_json()
-    email = data.get("email", "").strip().lower()
-    
-    if User.query.filter_by(email=email).first():
-        return jsonify({"message": "Email already exists"}), 400
 
-    # Parse Date of Joining
-    doj = None
-    if data.get("date_of_joining"):
-        try:
-            doj = datetime.fromisoformat(data.get("date_of_joining").replace("Z", "+00:00"))
-        except ValueError:
-            pass
+    name = data.get("Full Name")
+    email = data.get("email")
+    password = data.get("password")
+    role = data.get("role")
+    # permissions = json.dumps(data.get("permissions"))
 
-    # Normalize Role
-    role = data.get("role", "USER")
-    if role.upper() == 'SUPER ADMIN': role = 'SUPER_ADMIN'
-    if role.upper() == 'ADMIN': role = 'ADMIN'
-    if role.upper() == 'HR': role = 'HR'
-    if role.upper() == 'MANAGER': role = 'MANAGER'
-    if role.upper() == 'EMPLOYEE': role = 'EMPLOYEE'
-
-    # Role Hierarchy Check
-    role_levels = {"SUPER_ADMIN": 4, "ADMIN": 3, "MANAGER": 2, "HR": 2, "EMPLOYEE": 1, "USER": 1}
-    
-    creator_level = role_levels.get(current_user.role, 0)
-    target_level = role_levels.get(role, 0)
-
-    # Prevent creation of users with equal or higher privileges (except Super Admin)
-    if current_user.role != "SUPER_ADMIN" and target_level >= creator_level:
-        return jsonify({"message": f"Unauthorized. You cannot create a user with role '{role}'."}), 403
-
-    # Organization Logic
-    org_id = current_user.organization_id
-    if current_user.role == "SUPER_ADMIN":
-        org_id = data.get("organization_id") or current_user.organization_id
-
-    # Auto-verify users created via Dashboard/API (Trusted internal creation)
-    is_verified = True
-
-    # Capture raw password for email notification
-    raw_password = data.get("password", "Password@123")
-
-    mobile_number = data.get("mobile_number")
-    if mobile_number and not re.match(r'^91[6-9]\d{9}$', str(mobile_number)):
-        return jsonify({"error": "Invalid mobile number format. Must be 12 digits starting with 91 (e.g., 919876543210)."}), 400
+    # Check duplicate
+    existing_user = User.query.filter_by(email=email).first()
+    if existing_user:
+        return jsonify({"message": "Email already exists"}), 409
 
     new_user = User(
-        name=data.get("name"),
+        name=name,
         email=email,
-        password=generate_password_hash(raw_password),
-        phone=data.get("phone"),
-        mobile_number=mobile_number,
-        department=data.get("department"),
-        designation=data.get("designation"),
+        password=generate_password_hash(password),
         role=role,
-        status=data.get("status", "Active"),
-        date_of_joining=doj,
-        is_approved=True, # Admin created users are auto-approved
-        is_verified=is_verified,
-        organization_id=org_id,
-        team_id=data.get("team_id")
+        # permissions=permissions, # Uncomment if permissions column exists
+        organization_id=current_user.organization_id,
+        status="Active",
+        is_verified=True
     )
 
-    try:
-        db.session.add(new_user)
-        db.session.commit()
-        log_activity(
-            module="user",
-            action="created",
-            description=f"User '{new_user.name}' ({new_user.email}) created with role '{new_user.role}'.",
-            related_id=new_user.id
-        )
-    except Exception as e:
-        db.session.rollback()
-        print(f"[FAIL] DB ERROR in create_employee: {str(e)}")
-        return jsonify({"error": "Database error", "message": str(e)}), 500
+    db.session.add(new_user)
+    db.session.commit()
 
-    # Email Notification with Credentials
-    subject = "Your CRM Login Credentials"
-    creator_title = "Super Admin" if current_user.role == "SUPER_ADMIN" else "Administrator"
-    
-    body = f"""Hello {new_user.name},
+    # 🔴 SEND EMAIL (AFTER SUCCESS)
+    send_user_email(email, name, password)
 
-Your CRM account has been created by the {creator_title}.
-
-Here are your login details:
-
-Login URL: http://localhost:3000/login
-Email: {email}
-Password: {raw_password}
-Role: {role}
-
-Please change your password after your first login.
-
-Regards,
-CRM Team"""
-
-    send_email(email, subject, body)
-
-    return jsonify({"message": "Employee created successfully", "id": new_user.id}), 201
+    return jsonify({"message": "User created"}), 201
 
 @dashboard_bp.route("/employees", methods=["GET"])
 @token_required
@@ -382,7 +308,7 @@ def get_employees(current_user):
     """
     query = User.query
 
-    if current_user.role in ["SUPER_ADMIN", "ADMIN"]:
+    if current_user.role in ["Super Admin", "ADMIN"]:
         pass # No filter
     elif current_user.role == "HR":
         query = query.filter_by(organization_id=current_user.organization_id)
@@ -427,7 +353,7 @@ def update_employee(current_user, user_id):
     # Authorization Check
     is_self = (current_user.id == user_id)
     is_admin_hr = (current_user.role in ["ADMIN", "HR"] and current_user.organization_id == user.organization_id)
-    is_super = (current_user.role == "SUPER_ADMIN")
+    is_super = (current_user.role == "Super Admin")
 
     if not (is_self or is_admin_hr or is_super): 
         return jsonify({"message": "Unauthorized to update this record"}), 403
@@ -473,7 +399,7 @@ def delete_employee(current_user, user_id):
     Delete Employee.
     Allowed roles: Super Admin, Admin, HR.
     """
-    if current_user.role not in ["SUPER_ADMIN", "ADMIN", "HR"]:
+    if current_user.role not in ["Super Admin", "ADMIN", "HR"]:
         return jsonify({"message": "Unauthorized. Only Super Admin/Admin/HR can delete employees."}), 403
 
     user = User.query.get(user_id)
@@ -481,7 +407,7 @@ def delete_employee(current_user, user_id):
         return jsonify({"message": "User not found"}), 404
     
     # Prevent deleting users from other organizations (unless Super Admin)
-    if current_user.role != "SUPER_ADMIN" and user.organization_id != current_user.organization_id:
+    if current_user.role != "Super Admin" and user.organization_id != current_user.organization_id:
         return jsonify({"message": "Unauthorized to delete user from another organization"}), 403
 
     try:
@@ -506,13 +432,19 @@ def delete_employee(current_user, user_id):
 def get_team_data(current_user):
     """
     Get Team Data.
-    Access: HR, Manager
+    Access: All Users (Scoped to Organization)
     """
-    if current_user.role not in ['HR', 'MANAGER', 'ADMIN', 'SUPER_ADMIN']:
-        return jsonify({'message': 'Permission denied'}), 403
+    # Allow all users to access their team data
+    # if current_user.role not in ['HR', 'MANAGER', 'ADMIN', 'Super Admin']:
+    #     return jsonify({'message': 'Permission denied'}), 403
 
-    # Fetch users (excluding self)
-    team_members = User.query.filter(User.id != current_user.id, User.is_deleted == False).all()
+    branch_id = request.args.get('branchId')
+    query = User.query.filter(User.id != current_user.id, User.is_deleted == False, User.organization_id == current_user.organization_id)
+    
+    if branch_id and hasattr(User, 'branch_id'):
+        query = query.filter(User.branch_id == branch_id)
+
+    team_members = query.all()
     
     data = [{
         'id': member.id,
@@ -527,7 +459,7 @@ def get_team_data(current_user):
 @dashboard_bp.route('/attendance', methods=['GET'])
 @token_required
 def get_attendance(current_user):
-    if current_user.role not in ['HR', 'MANAGER', 'ADMIN', 'SUPER_ADMIN']:
+    if current_user.role not in ['HR', 'MANAGER', 'ADMIN', 'Super Admin']:
         return jsonify({'message': 'Permission denied'}), 403
     
     records = Attendance.query.order_by(Attendance.date.desc()).all()
@@ -543,7 +475,7 @@ def get_attendance(current_user):
 @dashboard_bp.route('/activity-logs', methods=['GET'])
 @token_required
 def get_activity_logs(current_user):
-    if current_user.role not in ['HR', 'MANAGER', 'ADMIN', 'SUPER_ADMIN']:
+    if current_user.role not in ['HR', 'MANAGER', 'ADMIN', 'Super Admin']:
         return jsonify({'message': 'Permission denied'}), 403
         
     logs = ActivityLog.query.order_by(ActivityLog.timestamp.desc()).limit(50).all()
@@ -558,14 +490,21 @@ def get_activity_logs(current_user):
 @dashboard_bp.route('/tasks', methods=['GET'])
 @token_required
 def get_my_tasks(current_user):
-    tasks = Task.query.filter_by(assigned_to=current_user.id).all()
-    data = [{'id': t.id, 'title': t.title, 'status': t.status, 'due_date': str(t.due_date) if t.due_date else None} for t in tasks]
+    tasks = Task.query.filter_by(created_by=current_user.id).all()
+    data = [{
+        'id': t.id, 
+        'title': t.title, 
+        'description': t.description,
+        'priority': t.priority.lower() if t.priority else 'medium',
+        'due_date': t.due_date.strftime('%Y-%m-%d') if t.due_date else None,
+        'status': t.status.lower() if t.status else 'pending'
+    } for t in tasks]
     return jsonify({"tasks": data}), 200
 
 @dashboard_bp.route('/dashboard/login-activity', methods=['GET'])
 @token_required
 def dashboard_login_activity(current_user):
-    if current_user.role not in ['SUPER_ADMIN', 'ADMIN']:
+    if current_user.role not in ['Super Admin', 'ADMIN']:
         return jsonify({"error": "Unauthorized"}), 403
         
     # Last 7 days login counts
@@ -583,18 +522,8 @@ def dashboard_login_activity(current_user):
 @dashboard_bp.route('/dashboard/task-stats', methods=['GET'])
 @token_required
 def dashboard_task_stats(current_user):
-    query = db.session.query(Task.status, func.count(Task.id)).group_by(Task.status)
-    
-    # If not admin, only see own tasks
-    if current_user.role not in ['SUPER_ADMIN', 'ADMIN', 'HR']:
-        query = query.filter(Task.assigned_to == current_user.id)
-    elif current_user.role in ['ADMIN', 'HR']:
-        # Filter by organization if applicable
-        if current_user.organization_id:
-            query = query.filter(Task.company_id == current_user.organization_id)
-        
-    stats = query.all()
-    return jsonify({status: count for status, count in stats})
+    # Status column removed, returning empty stats to prevent crash
+    return jsonify({})
 
 # --- CRM DASHBOARD WIDGETS ---
 
@@ -603,7 +532,7 @@ def dashboard_task_stats(current_user):
 def leads_summary(current_user):
     # Reuse the RBAC logic from lead_routes if possible, or replicate simple filter
     query = Lead.query
-    if current_user.role != 'SUPER_ADMIN':
+    if current_user.role != 'Super Admin':
         pass
         
     total = query.filter_by(is_deleted=False).count()
@@ -631,29 +560,34 @@ def deals_pipeline(current_user):
 
 # --- NEW DASHBOARD ANALYTICS ENDPOINTS (Final JSON Target) ---
 
-@dashboard_bp.route('/dashboard/summary', methods=['GET', 'OPTIONS'])
+@dashboard_bp.route('/dashboard', methods=['GET', 'OPTIONS'])
 @token_required
-def dashboard_summary(current_user):
+def get_dashboard(current_user):
     """
     Returns dashboard summary metrics as per specific frontend requirements.
     """
     # 1. Total Leads
-    total_leads = Lead.query.filter_by(is_deleted=False).count()
+    total_leads = Lead.query.filter_by(organization_id=current_user.organization_id, is_deleted=False).count()
+    print("TOTAL LEADS:", total_leads) # Debug print as requested
 
     # 2. Active Deals (Not Won or Lost)
     # Matches: SELECT COUNT(*) FROM deals WHERE status = 'Active' (mapped to stages)
     active_deals = Deal.query.filter(
         func.lower(Deal.stage).notin_(['won', 'closed won', 'lost', 'closed lost']),
-        Deal.is_deleted == False
+        Deal.is_deleted == False,
+        Deal.organization_id == current_user.organization_id
     ).count()
 
     # 3. Revenue (This Quarter)
     # Matches: SELECT SUM(amount) ... WHERE QUARTER(closed_at) = QUARTER(CURDATE())
     today = datetime.utcnow().date()
-    current_quarter = (today.month - 1) // 3 + 1
+    current_month = today.month
+    current_year = today.year
+
+    current_quarter = (current_month - 1) // 3 + 1
     quarter_start_month = (current_quarter - 1) * 3 + 1
-    quarter_start_date = today.replace(month=quarter_start_month, day=1)
-    
+    quarter_start_date = date(current_year, quarter_start_month, 1)
+
     # Calculate start of next quarter to define the upper bound
     if quarter_start_month + 3 > 12:
         next_q_start = today.replace(year=today.year + 1, month=1, day=1)
@@ -664,19 +598,20 @@ def dashboard_summary(current_user):
         func.lower(Deal.stage).in_(['won', 'closed won']),
         Deal.close_date >= quarter_start_date,
         Deal.close_date < next_q_start,
-        Deal.is_deleted == False
+        Deal.is_deleted == False,
+        Deal.organization_id == current_user.organization_id
     ).scalar() or 0
 
     # 4. Tasks Due (Today or Future)
     tasks_due = Task.query.filter(
-        Task.status != 'Completed',
-        Task.due_date >= today
+        Task.due_date >= today,
+        Task.organization_id == current_user.organization_id
     ).count()
 
     # 5. Overdue Tasks (Past)
     overdue_tasks = Task.query.filter(
-        Task.status != 'Completed',
-        Task.due_date < today
+        Task.due_date < today,
+        Task.organization_id == current_user.organization_id
     ).count()
 
     result = {
@@ -712,6 +647,97 @@ def dashboard_win_reasons(current_user):
         .group_by(Deal.win_reason).all()
     
     return jsonify([{"label": r[0], "value": r[1]} for r in results])
+
+# --- REQUESTED DASHBOARD ANALYTICS APIs ---
+
+@dashboard_bp.route("/dashboard/leads-status", methods=["GET"])
+def leads_status():
+    """Returns count of leads grouped by status."""
+    result = db.session.execute(text("""
+        SELECT status, COUNT(*) as count
+        FROM leads
+        GROUP BY status
+    """)).fetchall()
+
+    data = []
+    for row in result:
+        data.append({
+            "status": row[0],
+            "count": row[1]
+        })
+    return jsonify(data)
+
+@dashboard_bp.route("/dashboard/total-revenue", methods=["GET"])
+def total_revenue():
+    """Returns total revenue (Simplified for debugging)."""
+    result = db.session.execute(text("""
+        SELECT SUM(value) AS revenue
+        FROM deals
+    """)).fetchone()
+
+    revenue = result[0] if result and result[0] else 0
+    return jsonify({
+        "total_revenue": revenue
+    })
+
+@dashboard_bp.route("/dashboard/deals-growth", methods=["GET"])
+@token_required
+def deals_growth(current_user):
+    """Returns month-wise deals growth."""
+    # Handling Date Format for both MySQL (Production) and SQLite (Dev)
+    if 'sqlite' in db.engine.dialect.name:
+        date_col = "strftime('%Y-%m', created_at)"
+    else:
+        date_col = "DATE_FORMAT(created_at, '%Y-%m')"
+
+    query = text(f"""
+        SELECT {date_col} as month, SUM(value) as total
+        FROM deals
+        WHERE organization_id = :org_id
+        GROUP BY month
+        ORDER BY month
+    """)
+
+    results = db.session.execute(query, {'org_id': current_user.organization_id}).fetchall()
+
+    data = [{"month": row[0], "total": float(row[1]) if row[1] else 0} for row in results]
+    return jsonify(data)
+
+@dashboard_bp.route("/dashboard/recent-activity", methods=["GET"])
+def recent_activity():
+    """Returns recent system activities from audit_logs."""
+    # Matches SQL: SELECT user_name, module, action, created_at FROM audit_logs ...
+    result = db.session.execute(text("""
+        SELECT user_name, module, action, created_at
+        FROM audit_logs
+        ORDER BY created_at DESC
+        LIMIT 10
+    """)).fetchall()
+
+    activities = []
+    for row in result:
+        activities.append({
+            "user": row[0],
+            "module": row[1],
+            "action": row[2],
+            "date": row[3]
+        })
+    return jsonify(activities)
+
+@dashboard_bp.route("/dashboard/full-summary", methods=["GET"])
+@token_required
+def dashboard_full_summary(current_user):
+    """
+    Combined endpoint returning all dashboard metrics in one call.
+    Reduces frontend API calls.
+    """
+    # Calls the internal logic of the routes defined above
+    return jsonify({
+        "leads_status": leads_status().get_json(),
+        "total_revenue": total_revenue().get_json(),
+        "deals_growth": deals_growth(current_user).get_json(),
+        "recent_activity": recent_activity().get_json()
+    })
 
 @dashboard_bp.route('/dashboard/loss-reasons', methods=['GET'])
 @token_required
@@ -799,12 +825,12 @@ def get_dashboard_summary_widget(current_user):
     ).scalar() or 0
     
     # 6. Tasks Due (Pending tasks due today or in future)
-    tasks_due = Task.query.filter(Task.status != 'Completed', Task.due_date >= today.date()).count()
+    tasks_due = Task.query.filter(Task.due_date >= today.date()).count()
     # For overdue, we need to check due_date < today. 
     # Assuming due_date is stored as string YYYY-MM-DD or Date object.
     # If string, comparison might be tricky in SQL directly without cast, doing python side check for safety or simple string compare if format ISO.
     # Let's assume standard ISO string or Date type.
-    tasks_overdue = Task.query.filter(Task.status != 'Completed', Task.due_date < today.date()).count()
+    tasks_overdue = Task.query.filter(Task.due_date < today.date()).count()
 
     return jsonify({
         "total_leads": total_leads,
@@ -852,21 +878,19 @@ def get_today_tasks(current_user):
         date_func = "CURDATE()"
         
     sql = text(f"""
-        SELECT id, title, task_time 
+        SELECT id, title
         FROM tasks 
-        WHERE task_date = {date_func} 
-        AND company_id = :company_id
-        ORDER BY task_time ASC
+        WHERE due_date = {date_func} 
+        AND created_by = :user_id
     """)
     
     try:
-        results = db.session.execute(sql, {'company_id': current_user.organization_id}).fetchall()
+        results = db.session.execute(sql, {'user_id': current_user.id}).fetchall()
         data = []
         for row in results:
-            # row is (id, title, task_time)
-            # Ensure time is formatted as HH:MM (truncate seconds if present)
-            t_str = str(row[2])[:5] if row[2] else "09:00"
-            data.append({"time": t_str, "title": row[1]})
+            # row is (id, title)
+            # Default time since we removed task_time
+            data.append({"time": "09:00", "title": row[1]})
             
         return jsonify(data)
     except Exception as e:
@@ -880,21 +904,6 @@ def get_revenue_chart(current_user):
     Returns revenue data for the dashboard chart.
     Falls back to dummy data if less than 3 months of real data exists.
     """
-    # Dummy Data
-    DUMMY_REVENUE = [
-        {"month": "Jan", "revenue": 250000},
-        {"month": "Feb", "revenue": 320000},
-        {"month": "Mar", "revenue": 280000},
-        {"month": "Apr", "revenue": 450000},
-        {"month": "May", "revenue": 520000},
-        {"month": "Jun", "revenue": 480000},
-        {"month": "Jul", "revenue": 610000},
-        {"month": "Aug", "revenue": 580000},
-        {"month": "Sep", "revenue": 720000},
-        {"month": "Oct", "revenue": 680000},
-        {"month": "Nov", "revenue": 850000},
-        {"month": "Dec", "revenue": 920000}
-    ]
 
     current_year = datetime.utcnow().year
 
@@ -908,10 +917,6 @@ def get_revenue_chart(current_user):
         extract('year', Deal.created_at) == current_year,
         Deal.is_deleted == False
     ).group_by(extract('month', Deal.created_at)).all()
-
-    # If very little real data (< 3 months) -> return dummy
-    if len(revenue_data) < 3:
-        return jsonify(DUMMY_REVENUE)
 
     # Otherwise build real response
     revenue_dict = {int(r.month): float(r.total) for r in revenue_data}

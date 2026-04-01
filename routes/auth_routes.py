@@ -141,6 +141,52 @@ def construct_dashboard_url(user):
         # e.g., https://my-org.graphy.com/t/home
         return f"{scheme}://{org_slug}.{netloc}/dashboard"
 
+def _create_user_with_organization(name, email, password_hash, provider=None, provider_id=None):
+    """
+    Creates a new user, a new organization for them, and a default pipeline.
+    Returns the newly created user.
+    """
+    # Every new signup is a SUPER_ADMIN with their own organization.
+    role = "SUPER_ADMIN"
+    org_name = f"{name}'s Organization" if name else f"{email.split('@')[0]}'s Org"
+    
+    # Create Org
+    new_org = Organization(name=org_name)
+    db.session.add(new_org)
+    db.session.flush()
+    org_id = new_org.id
+
+    # Create User
+    new_user = User(
+        name=name,
+        email=email,
+        password=password_hash,
+        role=role,
+        is_verified=True,
+        status="Active",
+        organization_id=org_id,
+        provider=provider,
+        provider_id=provider_id
+    )
+    db.session.add(new_user)
+    db.session.flush() # Get user ID
+
+    # Link user as org creator and create default pipeline
+    new_org.created_by = new_user.id
+    _create_default_pipeline(org_id)
+    
+    return new_user
+
+def _create_default_pipeline(org_id):
+    """Creates the default pipeline and stages for a new organization."""
+    default_pipeline = Pipeline(name="Standard Pipeline", company_id=org_id, is_default=True)
+    db.session.add(default_pipeline)
+    db.session.flush()
+
+    stages = ["New", "Qualified", "Proposal", "Negotiation", "Won", "Lost"]
+    for idx, s_name in enumerate(stages):
+        db.session.add(PipelineStage(pipeline_id=default_pipeline.id, name=s_name, stage_order=idx+1))
+
 # --- Routes ---
 
 @auth_bp.route('/signup', methods=['POST'])
@@ -200,26 +246,26 @@ def verify_otp():
         print("[FAIL] Verify OTP Failed: No JSON body received or Content-Type not application/json")
         return jsonify({"error": "Invalid request body"}), 400
 
+    email = data.get('email', '').strip().lower()
     otp = data.get('otp')
     if otp:
         otp = str(otp).strip()
 
-    if not otp:
-        print(f"[FAIL] Verify OTP Failed: Missing OTP. Data received: {data}")
-        return jsonify({"error": "OTP is required"}), 400
+    if not otp or not email:
+        print(f"[FAIL] Verify OTP Failed: Missing email or OTP. Data received: {data}")
+        return jsonify({"error": "Email and OTP are required"}), 400
 
     # 1. Check DB Storage
-    print(f"[DEBUG] Verifying OTP by code: '{otp}'")
-    record = OtpVerification.query.filter_by(otp=otp).first()
-
-    email = record.email if record else None
+    print(f"[DEBUG] Verifying OTP for '{email}' with code: '{otp}'")
+    # VULNERABILITY FIX: Query by both email and OTP to prevent guessing attacks.
+    record = OtpVerification.query.filter_by(email=email, otp=otp).first()
 
     if not record:
         # DEBUG: List all OTPs to see what's going on
         all_otps = OtpVerification.query.all()
         print(f"[DEBUG] Current OTPs in DB: {[f'{o.otp} ({o.email})' for o in all_otps]}")
-        print(f"[FAIL] Verify OTP Failed: No pending OTP record found.")
-        return jsonify({"error": "No pending signup found. Check for typos or sign up again."}), 400
+        print(f"[FAIL] Verify OTP Failed: No pending OTP record found for email '{email}' with the provided OTP.")
+        return jsonify({"error": "Invalid OTP or email. Check for typos or sign up again."}), 400
 
     # 2. Validate OTP and Expiry
     if record.otp != otp:
@@ -246,47 +292,14 @@ def verify_otp():
             print(f"[FAIL] DB ERROR in verify_otp (cleanup existing): {str(e)}")
         return jsonify({"message": "User already verified. Please login."}), 200
 
-    # Every new signup is a SUPER_ADMIN with their own organization.
-    role = "SUPER_ADMIN"
-    org_name = f"{record.name}'s Organization" if record.name else f"{email.split('@')[0]}'s Org"
-    new_org = Organization(
-        name=org_name,
-        created_by=None # Will be set after user is created
-    )
-    db.session.add(new_org)
-    db.session.flush() # This is needed to get the ID for the user object.
-    org_id = new_org.id
-
-    new_user = User(
-        name=record.name,
-        email=email,
-        password=record.password_hash,
-        role=role,
-        is_verified=True,
-        status="Active",
-        organization_id=org_id
-    )
-
     try:
-        db.session.add(new_user)
+        _create_user_with_organization(
+            name=record.name,
+            email=email,
+            password_hash=record.password_hash
+        )
         db.session.delete(record) # Remove OTP record
         db.session.commit()
-
-        # Now that user exists, link them as the creator of the org
-        if new_org:
-            new_org.created_by = new_user.id
-            db.session.commit()
-
-        # --- Auto-Create Default Pipeline ---
-        default_pipeline = Pipeline(name="Standard Pipeline", company_id=new_org.id, is_default=True)
-        db.session.add(default_pipeline)
-        db.session.flush()
-
-        stages = ["New", "Qualified", "Proposal", "Negotiation", "Won", "Lost"]
-        for idx, s_name in enumerate(stages):
-            db.session.add(PipelineStage(pipeline_id=default_pipeline.id, name=s_name, stage_order=idx+1))
-        db.session.commit()
-        # ------------------------------------
 
         print(f"[OK] User created successfully: {email} (Role: {role})")
         return jsonify({"message": "Signup successful"}), 200
@@ -352,8 +365,14 @@ def resend_otp():
 @cross_origin()
 def login():
     data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid request body", "message": "JSON body is required"}), 400
+
     email = data.get('email', '').strip().lower()
     password = data.get('password', '').strip()
+
+    if not email or not password:
+        return jsonify({"error": "Missing credentials", "message": "Both email and password are required"}), 400
 
     user = User.query.filter_by(email=email).first()
 
@@ -377,14 +396,20 @@ def login():
     if not user.is_verified:
         return jsonify({"error": "Account not verified. Please complete the signup OTP verification first."}), 403
 
+    # Fetch organization db_name for multi-tenancy routing
+    # Using session.get and getattr to prevent 'AttributeError: db_name'
+    org = db.session.get(Organization, user.organization_id)
+    db_name = getattr(org, 'db_name', 'crm_db') if org else "crm_db"
+
     # 2. Success - Generate Token & URL directly
-    # Generate Token (Include email and role as requested)
     access_token = create_access_token(
         identity=str(user.id), 
+        expires_delta=datetime.timedelta(hours=24),
         additional_claims={
             "email": user.email, 
             "role": user.role,
-            "organization_id": user.organization_id
+            "organization_id": user.organization_id,
+            "db_name": db_name
         }
     )
 
@@ -474,43 +499,13 @@ def handle_oauth_login(email, name, provider, provider_id):
                 db.session.commit()
         else:
             # 2. Create New User
-            # --- UNIFIED ROLE & ORG LOGIC ---
-            # Every new signup is a SUPER_ADMIN with their own organization.
-            role = "SUPER_ADMIN"
-            org_name = f"{name}'s Organization" if name else f"{email.split('@')[0]}'s Org"
-            new_org = Organization(name=org_name)
-            db.session.add(new_org)
-            db.session.flush() # Get ID
-            org_id = new_org.id
-            # --- END UNIFIED LOGIC ---
-
-            user = User(
+            user = _create_user_with_organization(
                 name=name,
                 email=email,
-                password=generate_password_hash(generate_otp()), # Random password
-                role=role,
-                is_verified=True,
-                status="Active",
+                password_hash=generate_password_hash(generate_otp()), # Random password for OAuth users
                 provider=provider,
-                provider_id=provider_id,
-                organization_id=org_id
+                provider_id=provider_id
             )
-            db.session.add(user)
-            db.session.flush() # Get user ID before commit
-
-            # Link user to the new org and create default pipeline if it's the first user
-            if new_org:
-                new_org.created_by = user.id
-                db.session.commit() # Commit to save user and org creator link
-
-            # --- Auto-Create Default Pipeline (Consistent with OTP flow) ---
-            default_pipeline = Pipeline(name="Standard Pipeline", company_id=new_org.id, is_default=True)
-            db.session.add(default_pipeline)
-            db.session.flush()
-
-            stages = ["New", "Qualified", "Proposal", "Negotiation", "Won", "Lost"]
-            for idx, s_name in enumerate(stages):
-                db.session.add(PipelineStage(pipeline_id=default_pipeline.id, name=s_name, stage_order=idx+1))
             db.session.commit()
         
         # 3. Generate Token
@@ -581,41 +576,6 @@ def forgot_password():
     else:
         # In a real app, you might not want to expose this failure.
         return jsonify({"error": "Failed to send password reset email."}), 500
-
-@auth_bp.route('/verify-reset-otp', methods=['POST'])
-def verify_reset_otp():
-    data = request.get_json()
-    otp = data.get('otp', '').strip()
-
-    if not otp:
-        return jsonify({"error": "OTP is required"}), 400
-
-    record = PasswordResetToken.query.filter_by(otp=otp).first()
-    if not record:
-        return jsonify({"error": "Invalid OTP or no pending reset found."}), 404
-
-    if datetime.datetime.utcnow() > record.expires_at:
-        db.session.delete(record)
-        db.session.commit()
-        return jsonify({"error": "OTP has expired"}), 400
-
-    try:
-        record.verified = True
-        # Generate a secure token for the session
-        reset_token = secrets.token_urlsafe(32)
-        record.reset_token = reset_token
-        # Extend expiry slightly to give user time to enter new password
-        record.expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=5)
-        db.session.commit()
-
-        response = jsonify({"message": "OTP verified successfully"})
-        # Set HttpOnly cookie to maintain session without exposing token in body
-        response.set_cookie('reset_token', reset_token, httponly=True, samesite='Lax', max_age=300)
-        return response, 200
-    except Exception as e:
-        db.session.rollback()
-        print(f"[FAIL] DB ERROR in verify_reset_otp: {str(e)}")
-        return jsonify({"error": "Database error", "message": str(e)}), 500
 
 @auth_bp.route('/reset-password', methods=['POST'])
 def reset_password():

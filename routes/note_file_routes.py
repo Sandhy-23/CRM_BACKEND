@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, send_file, current_app
+from flask import Blueprint, request, jsonify, send_file, current_app, send_from_directory
 from extensions import db
 from routes.auth_routes import token_required
 from models.note_file import Note, File
@@ -13,11 +13,9 @@ from models.activity_logger import log_activity
 note_file_bp = Blueprint('note_files', __name__)
 
 # --- Configuration ---
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'doc', 'docx', 'xls', 'xlsx'}
-MAX_FILE_SIZE = 10 * 1024 * 1024 # 10MB
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+UPLOAD_FOLDER = "uploads"
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
 
 # --- Helper: RBAC & Entity Validation ---
 def get_entity_config(entity_type):
@@ -90,26 +88,33 @@ def validate_access(user, entity_type, entity_id):
 
 # --- NOTES APIs ---
 
-@note_file_bp.route('/api/notes', methods=['POST'])
+@note_file_bp.route("/notes", methods=["POST"])
 @token_required
 def add_note(current_user):
-    data = request.get_json(force=True)
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Invalid or missing JSON body"}), 400
 
-    note_text = data.get("note")
-    if not note_text:
-        return jsonify({"error": "note is required"}), 400
+        title = data.get("title")
+        note_text = data.get("note") or data.get("content")
 
-    note = Note(note=note_text)
-    db.session.add(note)
-    db.session.commit()
+        if not note_text:
+            return jsonify({"error": "Note is required"}), 400
 
-    return jsonify({
-        "message": "Note added successfully",
-        "id": note.id,
-        "created_at": note.created_at
-    }), 201
+        # Create Note with explicit mapping
+        new_note = Note(title=title, note=note_text)
+        
+        db.session.add(new_note)
+        db.session.commit()
 
-@note_file_bp.route('/api/notes', methods=['GET'])
+        return jsonify({"message": "Note added", "id": new_note.id}), 201
+    except Exception as e:
+        db.session.rollback()
+        print(f"[ERROR] Failed to add note: {str(e)}")
+        return jsonify({"error": "Internal Server Error", "details": str(e)}), 500
+
+@note_file_bp.route('/notes', methods=['GET'])
 @token_required
 def get_notes(current_user):
     notes = Note.query.order_by(Note.created_at.desc()).all()
@@ -117,181 +122,166 @@ def get_notes(current_user):
     return jsonify([
         {
             "id": n.id,
+            "title": n.title,
             "note": n.note,
             "created_at": n.created_at
         }
         for n in notes
     ])
 
-@note_file_bp.route('/api/notes/<int:note_id>', methods=['DELETE'])
+@note_file_bp.route('/notes/<int:note_id>', methods=['DELETE'])
 @token_required
 def delete_note(current_user, note_id):
-    note = Note.query.get_or_404(note_id)
+    note = Note.query.get(note_id)
+
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+
     db.session.delete(note)
     db.session.commit()
 
     return jsonify({"message": "Note deleted successfully"})
 
-@note_file_bp.route("/api/notes/<int:note_id>", methods=["PUT"])
+@note_file_bp.route("/notes/<int:note_id>", methods=["PUT"])
 @token_required
 def update_note(current_user, note_id):
-    data = request.get_json(force=True)
-    note_text = data.get("note")
+    data = request.get_json()
+    
+    note = Note.query.get(note_id)
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
 
-    if not note_text:
-        return jsonify({"error": "note is required"}), 400
-
-    note = Note.query.get_or_404(note_id)
-    note.note = note_text
+    note.title = data.get("title", note.title)
+    note.note = data.get("note", note.note)
+    
     db.session.commit()
 
     return jsonify({"message": "Note updated successfully"})
 
 # --- FILES APIs ---
 
-@note_file_bp.route('/api/files', methods=['POST'])
+@note_file_bp.route('/files', methods=['POST'])
 @token_required
 def upload_file(current_user):
+    print("[DEBUG] Form Data:", request.form)
+    
     if 'file' not in request.files:
-        return jsonify({'error': 'Validation Error', 'message': 'No file part'}), 400
-        
+        return jsonify({"error": "No file provided"}), 400
+
     file = request.files['file']
-    entity_type = request.form.get('entity_type', '').lower()
-    entity_id = request.form.get('entity_id')
 
     if file.filename == '':
-        return jsonify({'error': 'Validation Error', 'message': 'No selected file'}), 400
+        return jsonify({"error": "Empty filename"}), 400
 
-    if not allowed_file(file.filename):
-        return jsonify({'error': 'Validation Error', 'message': 'File type not allowed'}), 400
-
-    # Validate Access
-    entity, error = validate_access(current_user, entity_type, entity_id)
-    if error:
-        return jsonify({'error': 'Permission denied', 'message': error}), 403
-
-    # Determine Company ID (Use entity's org ID to ensure correct storage bucket)
-    _, _, org_field = get_entity_config(entity_type)
-    entity_org_id = getattr(entity, org_field) if org_field else None
-    
-    # Fallback to 0 if no company associated (e.g. Super Admin global data)
-    company_id = entity_org_id if entity_org_id else (current_user.organization_id if current_user.organization_id else 0)
-
-    # Prepare Storage Path: /uploads/{company_id}/{entity_type}/
     filename = secure_filename(file.filename)
-    upload_folder = os.path.join(os.getcwd(), 'uploads', str(company_id), entity_type)
-    
-    if not os.path.exists(upload_folder):
-        os.makedirs(upload_folder)
-        
-    file_path = os.path.join(upload_folder, filename)
-    
-    # Check File Size (Manual check if not handled by Nginx/Flask config)
-    file.seek(0, os.SEEK_END)
-    size = file.tell()
-    file.seek(0)
-    
-    if size > MAX_FILE_SIZE:
-        return jsonify({'error': 'Validation Error', 'message': 'File too large (Max 10MB)'}), 400
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
 
-    # Save File
-    file.save(file_path)
+    file.save(filepath)
 
-    # Save Metadata
-    new_file = File(
-        entity_type=entity_type,
-        entity_id=entity_id,
-        file_name=filename,
-        file_path=file_path,
-        file_size=size,
-        file_type=file.content_type,
-        uploaded_by=current_user.id,
-        company_id=company_id
-    )
-    
+    # 🔥 ADD THIS BLOCK: Database Insert
     try:
+        new_file = File(
+            entity_type=request.form.get("entity_type"),
+            entity_id=request.form.get("entity_id"),
+            file_name=filename,
+            file_path=filepath,
+            file_size=os.path.getsize(filepath),
+            file_type=file.content_type,
+            uploaded_by=current_user.id,
+            company_id=current_user.organization_id,
+            created_at=datetime.utcnow()
+        )
+
         db.session.add(new_file)
         db.session.commit()
-        log_activity(
-            module="file",
-            action="uploaded",
-            description=f"File '{new_file.file_name}' uploaded to {new_file.entity_type} ID: {new_file.entity_id}",
-            related_id=new_file.id
-        )
-        return jsonify({'message': 'File uploaded successfully', 'file': new_file.to_dict()}), 201
+
+        return jsonify({
+            "message": "File uploaded successfully",
+            "filename": filename,
+            "file_id": new_file.id
+        })
     except Exception as e:
         db.session.rollback()
-        print(f"[FAIL] DB ERROR in upload_file: {str(e)}")
-        return jsonify({'error': 'Database error', 'message': str(e)}), 500
+        print(f"[ERROR] DB Insert Failed: {e}")
+        return jsonify({"error": "Database error", "details": str(e)}), 500
 
-@note_file_bp.route('/api/files', methods=['GET'])
+@note_file_bp.route('/files', methods=['GET'])
 @token_required
 def get_files(current_user):
-    entity_type = request.args.get('entity_type', '').lower()
-    entity_id = request.args.get('entity_id')
+    entity_type = request.args.get("entity_type")
+    entity_id = request.args.get("entity_id")
 
-    if not entity_type or not entity_id:
-        return jsonify({'error': 'Validation Error', 'message': 'entity_type and entity_id are required'}), 400
+    # Start with a base query filtered by the user's organization for security
+    query = File.query.filter_by(company_id=current_user.organization_id)
 
-    entity, error = validate_access(current_user, entity_type, entity_id)
-    if error:
-        return jsonify({'error': 'Permission denied', 'message': error}), 403
+    if entity_type:
+        query = query.filter_by(entity_type=entity_type)
 
-    files = File.query.filter_by(entity_type=entity_type, entity_id=entity_id)\
-        .order_by(File.created_at.desc()).all()
-        
-    return jsonify([f.to_dict() for f in files]), 200
+    if entity_id:
+        query = query.filter_by(entity_id=entity_id)
 
-@note_file_bp.route('/api/files/<int:file_id>/download', methods=['GET'])
+    files = query.all()
+
+    result = []
+    for f in files:
+        result.append({
+            "id": f.id,
+            "file_name": f.file_name,
+            "file_type": f.file_type,
+            "file_size": f.file_size,
+            "uploaded_by": f.uploaded_by,
+            "company_id": f.company_id
+        })
+
+    return jsonify(result)
+
+@note_file_bp.route('/files/<int:file_id>/download', methods=['GET'])
 @token_required
-def download_file(current_user, file_id):
+def download_file_by_id(current_user, file_id):
     file_record = File.query.get(file_id)
+
     if not file_record:
-        return jsonify({'error': 'Not Found', 'message': 'File record not found'}), 404
+        return jsonify({"error": "File not found"}), 404
 
-    # Validate Access to the parent entity to ensure permission still holds
-    _, error = validate_access(current_user, file_record.entity_type, file_record.entity_id)
-    if error:
-        return jsonify({'error': 'Permission denied', 'message': error}), 403
+    return send_file(file_record.file_path, as_attachment=True)
 
-    if not os.path.exists(file_record.file_path):
-        return jsonify({'error': 'Not Found', 'message': 'File not found on server'}), 404
+@note_file_bp.route('/files/<filename>', methods=['GET'])
+def download_file(filename):
+    return send_from_directory("uploads", filename)
 
-    return send_file(file_record.file_path, as_attachment=True, download_name=file_record.file_name)
-
-@note_file_bp.route('/api/files/<int:file_id>', methods=['DELETE'])
+@note_file_bp.route('/files/<int:file_id>', methods=['DELETE'])
 @token_required
 def delete_file(current_user, file_id):
+    print("DELETE ID:", file_id)
+    
     file_record = File.query.get(file_id)
+
     if not file_record:
-        return jsonify({'error': 'Not Found', 'message': 'File record not found'}), 404
+        return jsonify({"error": "File not found"}), 404
 
-    # Security: Company Check
-    if current_user.role != 'SUPER_ADMIN' and file_record.company_id != current_user.organization_id:
-        return jsonify({'error': 'Permission denied', 'message': 'Unauthorized access'}), 403
+    # delete file from folder
+    if file_record.file_path and os.path.exists(file_record.file_path):
+        os.remove(file_record.file_path)
 
-    # Permission: Only Uploader, Admin, or Super Admin
-    if current_user.role not in ['SUPER_ADMIN', 'ADMIN'] and file_record.uploaded_by != current_user.id:
-        return jsonify({'error': 'Permission denied', 'message': 'Only the uploader or Admin can delete this file'}), 403
+    # delete from DB
+    db.session.delete(file_record)
+    db.session.commit()
 
-    # Remove from Disk
-    if os.path.exists(file_record.file_path):
-        try:
-            os.remove(file_record.file_path)
-        except Exception as e:
-            print(f"Error deleting file from disk: {e}")
+    return jsonify({"message": "File deleted successfully"})
 
-    try:
-        db.session.delete(file_record)
-        db.session.commit()
-        log_activity(
-            module="file",
-            action="deleted",
-            description=f"File '{file_record.file_name}' (ID: {file_id}) deleted from {file_record.entity_type} ID: {file_record.entity_id}",
-            related_id=file_id
-        )
-        return jsonify({'message': 'File deleted successfully'}), 200
-    except Exception as e:
-        db.session.rollback()
-        print(f"[FAIL] DB ERROR in delete_file: {str(e)}")
-        return jsonify({'error': 'Database error', 'message': str(e)}), 500
+@note_file_bp.route('/files/<filename>', methods=['PUT'])
+def update_file(filename):
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+
+    if not os.path.exists(filepath):
+        return jsonify({"error": "File not found"}), 404
+
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files['file']
+
+    # overwrite
+    file.save(filepath)
+
+    return jsonify({"message": "File updated successfully"})

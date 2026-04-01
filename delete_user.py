@@ -30,4 +30,4 @@ def delete_user(email):
 
 if __name__ == "__main__":
     # Change this email if you need to delete a different user
-    delete_user("test@example.com")
+    delete_user("sandhyarani39181@gmail.com")

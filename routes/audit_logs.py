@@ -4,8 +4,11 @@ from extensions import db
 
 audit_log_bp = Blueprint('audit_logs', __name__)
 
-@audit_log_bp.route("/api/audit-logs", methods=["GET"])
+@audit_log_bp.route("/api/audit-logs", methods=["GET", "OPTIONS"])
 def get_audit_logs():
+    if request.method == 'OPTIONS':
+        return '', 200
+
     module = request.args.get("module")
 
     query = AuditLog.query
@@ -20,7 +23,7 @@ def get_audit_logs():
     for log in logs:
         result.append({
             "id": log.id,
-            "date_time": log.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            "date_time": log.created_at.strftime("%Y-%m-%d %H:%M:%S") if log.created_at else None,
             "user": log.user_name,
             "module": log.module,
             "action": log.action,

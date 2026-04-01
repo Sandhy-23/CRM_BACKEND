@@ -23,11 +23,8 @@ def quick_add_task(current_user):
     new_task = Task(
         title=data.get('title'),
         description=data.get('description'),
-        assigned_to=data.get('assigned_to'),
-        status='Pending',
         created_by=current_user.id,
-        created_at=datetime.utcnow(),
-        company_id=current_user.organization_id
+        created_at=datetime.utcnow()
     )
     db.session.add(new_task)
     db.session.commit()
@@ -135,9 +132,9 @@ def log_manual_activity(current_user):
 @token_required
 def complete_own_task(current_user, task_id):
     task = Task.query.get(task_id)
-    if not task or task.assigned_to != current_user.id:
+    if not task or task.created_by != current_user.id:
         return jsonify({'message': 'Task not found or permission denied.'}), 403
-    task.status = 'Completed'
+    # Status field removed, action logs completion but DB remains unchanged regarding status
     db.session.commit()
     log_activity(
         module="task",

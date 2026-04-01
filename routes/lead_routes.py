@@ -7,12 +7,14 @@ from datetime import datetime
 lead_bp = Blueprint('lead_bp', __name__)
 
 @lead_bp.route("/", methods=["GET"], strict_slashes=False)
-@lead_bp.route("/all", methods=["GET"])
+@lead_bp.route("/all", methods=["GET", "OPTIONS"])
 @token_required
 def get_leads(current_user):
     """
     Get all leads for the user's organization, ensuring data isolation.
     """
+    if request.method == 'OPTIONS':
+        return '', 200
     try:
         leads = Lead.query.filter_by(is_deleted=False).all()
 
@@ -21,9 +23,11 @@ def get_leads(current_user):
         print(f"[FAIL] Error fetching leads: {e}")
         return jsonify({"error": "An internal error occurred while fetching leads."}), 500
 
-@lead_bp.route("/", methods=["POST"], strict_slashes=False)
+@lead_bp.route("/", methods=["POST", "OPTIONS"], strict_slashes=False)
 @token_required
 def create_lead(current_user):
+    if request.method == 'OPTIONS':
+        return '', 200
     data = request.get_json()
     print("[DEBUG] /api/leads Body:", data)
 
@@ -49,21 +53,25 @@ def create_lead(current_user):
 
     return jsonify({"message": "Lead created successfully"}), 201
 
-@lead_bp.route("/<int:lead_id>", methods=["GET"])
+@lead_bp.route("/<int:lead_id>", methods=["GET", "OPTIONS"])
 @token_required
 def get_lead(current_user, lead_id):
     """
     Get a single lead by its ID.
     """
+    if request.method == 'OPTIONS':
+        return '', 200
     lead = Lead.query.filter_by(id=lead_id, organization_id=current_user.organization_id, is_deleted=False).first_or_404()
     return jsonify(lead.to_dict())
 
-@lead_bp.route("/<int:lead_id>", methods=["PUT"], strict_slashes=False)
+@lead_bp.route("/<int:lead_id>", methods=["PUT", "OPTIONS"], strict_slashes=False)
 @token_required
 def update_lead(current_user, lead_id):
     """
     Update a single lead by its ID.
     """
+    if request.method == 'OPTIONS':
+        return '', 200
     lead = Lead.query.filter_by(id=lead_id, organization_id=current_user.organization_id).first()
 
     if not lead:
@@ -88,12 +96,14 @@ def update_lead(current_user, lead_id):
 
     return jsonify({"message": "Lead updated successfully"})
 
-@lead_bp.route("/<int:lead_id>", methods=["DELETE"], strict_slashes=False)
+@lead_bp.route("/<int:lead_id>", methods=["DELETE", "OPTIONS"], strict_slashes=False)
 @token_required
 def delete_lead(current_user, lead_id):
     """
     Hard delete a lead by its ID.
     """
+    if request.method == 'OPTIONS':
+        return '', 200
     lead = Lead.query.filter_by(id=lead_id, organization_id=current_user.organization_id).first()
 
     if not lead:

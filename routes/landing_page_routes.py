@@ -1,48 +1,94 @@
 from flask import Blueprint, request, jsonify
-from models.landing_page import LandingPage
 from extensions import db
-from routes.auth_routes import token_required
+from models.landing_page import LandingPage
 
-landing_page_bp = Blueprint("landing_page_bp", __name__)
+landing_page_bp = Blueprint('landing_pages', __name__)
 
-def serialize_landing(lp):
-    return {
-        "id": lp.id,
-        "name": lp.name,
-        "slug": lp.slug,
-        "campaign": lp.campaign,
-        "status": lp.status,
-        "leads": lp.leads,
-        "conversion": lp.conversion,
-        "headline": lp.headline,
-        "description": lp.description,
-        "formFields": lp.form_fields,
-        "visitors": lp.visitors,
-        "createdAt": lp.created_at.isoformat() if lp.created_at else None,
-        "updatedAt": lp.updated_at.isoformat() if lp.updated_at else None
-    }
+# 1. GET all landing pages
+@landing_page_bp.route('/api/landing-pages', methods=['GET', 'OPTIONS'])
+def get_landing_pages():
+    if request.method == 'OPTIONS':
+        return '', 200
 
-# GET /landing-pages
-@landing_page_bp.route("/api/landing-pages", methods=["GET"])
-@token_required
-def get_landing_pages(current_user):
-    pages = LandingPage.query.filter_by(organization_id=current_user.organization_id).all()
-    return jsonify([serialize_landing(p) for p in pages])
+    pages = LandingPage.query.order_by(LandingPage.created_at.desc()).all()
 
-# Analytics Endpoint
-@landing_page_bp.route("/api/landing-pages/<string:id>/analytics", methods=["GET"])
-@token_required
-def analytics(current_user, id):
-    lp = LandingPage.query.filter_by(id=id, organization_id=current_user.organization_id).first_or_404()
+    result = []
+    for p in pages:
+        result.append({
+            "id": p.id,
+            "name": p.name,
+            "slug": p.slug,
+            "campaign": p.campaign,
+            "status": p.status,
+            "leads": p.leads,
+            "conversion": p.conversion,
+            "visitors": p.visitors,
+            "created_at": p.created_at.isoformat() if p.created_at else None
+        })
 
-    if lp.visitors == 0:
-        conversion = "0%"
-    else:
-        percent = (lp.leads / lp.visitors) * 100
-        conversion = f"{round(percent, 1)}%"
+    return jsonify(result), 200
 
-    return jsonify({
-        "visitors": lp.visitors,
-        "leads": lp.leads,
-        "conversion": conversion
-    })
+# 2. CREATE landing page
+@landing_page_bp.route('/api/landing-pages', methods=['POST', 'OPTIONS'])
+def create_landing_page():
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    data = request.get_json()
+    
+    if not data.get('name') or not data.get('slug'):
+        return jsonify({"error": "Name and Slug are required"}), 400
+
+    page = LandingPage(
+        name=data.get('name'),
+        slug=data.get('slug'),
+        campaign=data.get('campaign'),
+        status=data.get('status', 'Draft'),
+        leads=0,
+        conversion="0%",
+        visitors=0,
+        # Default organization_id to 1 if not provided (or handle via auth)
+        organization_id=data.get('organization_id', 1) 
+    )
+
+    db.session.add(page)
+    db.session.commit()
+
+    return jsonify({"message": "Landing page created", "id": page.id}), 201
+
+# 3. UPDATE landing page
+@landing_page_bp.route('/api/landing-pages/<string:id>', methods=['PUT', 'OPTIONS'])
+def update_landing_page(id):
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    page = LandingPage.query.get(id)
+
+    if not page:
+        return jsonify({"error": "Not found"}), 404
+
+    data = request.get_json()
+
+    if 'name' in data: page.name = data['name']
+    if 'slug' in data: page.slug = data['slug']
+    if 'status' in data: page.status = data['status']
+    if 'campaign' in data: page.campaign = data['campaign']
+
+    db.session.commit()
+
+    return jsonify({"message": "Updated", "id": page.id}), 200
+
+# 4. DELETE landing page
+@landing_page_bp.route('/api/landing-pages/<string:id>', methods=['DELETE', 'OPTIONS'])
+def delete_landing_page(id):
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    page = LandingPage.query.get(id)
+    if not page:
+        return jsonify({"error": "Not found"}), 404
+
+    db.session.delete(page)
+    db.session.commit()
+
+    return jsonify({"message": "Deleted"}), 200

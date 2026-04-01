@@ -6,7 +6,7 @@ from routes.auth_routes import token_required
 
 state_bp = Blueprint('state', __name__)
 
-@state_bp.route('/api/states', methods=['GET'])
+@state_bp.route('/api/states', methods=['GET', 'OPTIONS'])
 @token_required
 def get_states(current_user):
     states = State.query.filter_by(

@@ -7,7 +7,7 @@ from routes.auth_routes import token_required
 
 profile_bp = Blueprint('profile', __name__)
 
-@profile_bp.route('/api/profile', methods=['GET'])
+@profile_bp.route('/api/profile', methods=['GET', 'OPTIONS'])
 @token_required
 def get_profile(current_user):
     # Fetch Organization

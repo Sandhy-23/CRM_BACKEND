@@ -182,19 +182,18 @@ def update_deal(current_user, deal_id):
     
     return jsonify({'message': 'No valid fields provided for update'}), 400
 
+# ✅ FIX 2: DELETE API
 @deal_bp.route('/api/deals/<int:deal_id>', methods=['DELETE'])
 @token_required
 def delete_deal(current_user, deal_id):
-    deal = get_deal_query(current_user).filter_by(id=deal_id).first()
+    # Hard delete as requested
+    deal = Deal.query.get(deal_id)
     if not deal:
-        return jsonify({'message': f'Deal with ID {deal_id} not found.'}), 404
+        return jsonify({"error": "Deal not found"}), 404
 
-    deal.is_deleted = True
-    deal.deleted_at = datetime.utcnow()
-    
+    db.session.delete(deal)
     db.session.commit()
-    log_activity("deal", "deleted", f"Deal '{deal.title}' was deleted.", deal.id)
-    return jsonify({'message': 'Deal deleted successfully'}), 200
+    return jsonify({"message": "Deleted successfully"}), 200
 
 @deal_bp.route('/api/deals/<int:deal_id>/status', methods=['PUT'])
 @token_required
@@ -231,7 +230,7 @@ def update_deal_status(current_user, deal_id):
         pass
     return jsonify({'message': f'Deal status updated to {new_stage}'}), 200
 
-@deal_bp.route('/api/deals/analytics', methods=['GET'])
+@deal_bp.route('/api/deals/analytics', methods=['GET', 'OPTIONS'])
 @token_required
 def get_deal_analytics(current_user):
     # 1. Win / Loss / In-progress count

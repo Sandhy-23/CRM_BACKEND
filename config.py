@@ -1,9 +1,15 @@
 import os
+from dotenv import load_dotenv
 
 basedir = os.path.abspath(os.path.dirname(__file__))
+load_dotenv()
 
 class Config:
-    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL") or "mysql+pymysql://root:@localhost/crm_db"
+    # ✅ STEP 2: Change DB connection (MySQL)
+    # 👉 Replace 'root' and 'password' with your actual MySQL credentials
+    # 👉 Replace 'crm_db' with your actual database name if different
+    SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://root:1234@localhost/crm_db'
+    
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SECRET_KEY = os.environ.get("SECRET_KEY") or "a-dev-secret-key-that-is-not-so-secret"
 

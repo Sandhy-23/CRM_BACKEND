@@ -1,137 +1,50 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify
 from extensions import db
 from models.campaign import Campaign
-from models.crm import Lead, Deal
 from routes.auth_routes import token_required
-from sqlalchemy import func, case
-from datetime import datetime
-import calendar
 
 marketing_analytics_bp = Blueprint('marketing_analytics', __name__)
 
 @marketing_analytics_bp.route('/api/marketing/analytics', methods=['GET'])
 @token_required
 def get_marketing_analytics(current_user):
-    try:
-        org_id = current_user.organization_id
+    
+    # Fetch campaigns for the current user's organization
+    campaigns = Campaign.query.filter_by(organization_id=current_user.organization_id).all()
 
-        # 1️⃣ Summary Metrics
-        total_campaigns = Campaign.query.filter_by(organization_id=org_id).count()
-        total_leads = Lead.query.filter_by(organization_id=org_id, is_deleted=False).count()
-        
-        # Revenue from Won Deals
-        revenue = db.session.query(func.sum(Deal.value)).filter(
-            Deal.organization_id == org_id,
-            Deal.stage.ilike('%won%'),
-            Deal.is_deleted == False
-        ).scalar() or 0
+    campaign_list = []
+    for c in campaigns:
+        # Using getattr to avoid crashes if columns don't exist in current DB schema
+        leads = getattr(c, 'leads', 0) or 0
+        revenue = getattr(c, 'revenue', 0) or 0
+        conversion = getattr(c, 'conversion', 0) or 0
+        date_val = getattr(c, 'date', c.created_at)
 
-        # Conversion Rate
-        won_deals_count = Deal.query.filter(
-            Deal.organization_id == org_id,
-            Deal.stage.ilike('%won%'),
-            Deal.is_deleted == False
-        ).count()
-        
-        conversion_rate = 0
-        if total_leads > 0:
-            conversion_rate = round((won_deals_count / total_leads) * 100, 2)
-
-        # 2️⃣ Monthly Trend (Leads)
-        # SQLite uses strftime, MySQL uses DATE_FORMAT. Assuming SQLite based on context.
-        monthly_trends = db.session.query(
-            func.strftime('%Y-%m', Lead.created_at).label('month'),
-            func.count(Lead.id)
-        ).filter(
-            Lead.organization_id == org_id,
-            Lead.is_deleted == False
-        ).group_by('month').order_by('month').all()
-
-        trend_data = []
-        for mt in monthly_trends:
-            if mt[0]:
-                year, month = mt[0].split('-')
-                month_name = calendar.month_abbr[int(month)]
-                trend_data.append({"name": f"{month_name}", "leads": mt[1]})
-
-        # 3️⃣ Funnel Analysis
-        # Leads -> Opportunities (Deals Created) -> Wins
-        total_opportunities = Deal.query.filter_by(organization_id=org_id, is_deleted=False).count()
-        
-        funnel_data = [
-            {"name": "Total Leads", "value": total_leads, "fill": "#8884d8"},
-            {"name": "Opportunities", "value": total_opportunities, "fill": "#82ca9d"},
-            {"name": "Wins", "value": won_deals_count, "fill": "#ffc658"}
-        ]
-
-        # 4️⃣ Channel Performance (Lead Source)
-        channel_stats = db.session.query(
-            Lead.source,
-            func.count(Lead.id)
-        ).filter(
-            Lead.organization_id == org_id,
-            Lead.is_deleted == False
-        ).group_by(Lead.source).all()
-
-        channel_data = [{"name": cs[0] or "Unknown", "value": cs[1]} for cs in channel_stats]
-
-        # 5️⃣ Campaign Performance
-        # Join Campaign -> Lead -> Deal to get ROI per campaign
-        campaigns = Campaign.query.filter_by(organization_id=org_id).all()
-        campaign_performance = []
-
-        for camp in campaigns:
-            # Count Leads for this campaign
-            camp_leads = Lead.query.filter_by(campaign_id=str(camp.id), is_deleted=False).count()
-            
-            # Calculate Revenue (Deals from Leads of this campaign)
-            # Note: This requires Leads to have campaign_id populated
-            camp_revenue = db.session.query(func.sum(Deal.value)).join(Lead, Deal.lead_id == Lead.id).filter(
-                Lead.campaign_id == str(camp.id),
-                Deal.stage.ilike('%won%'),
-                Deal.is_deleted == False
-            ).scalar() or 0
-
-            # ROI Calculation
-            roi = 0
-            if camp.spent and camp.spent > 0:
-                roi = round(((camp_revenue - camp.spent) / camp.spent) * 100, 2)
-
-            campaign_performance.append({
-                "id": camp.id,
-                "name": camp.name,
-                "status": camp.status,
-                "leads": camp_leads,
-                "revenue": camp_revenue,
-                "spent": camp.spent or 0,
-                "roi": roi
-            })
-
-        return jsonify({
-            "kpis": {
-                "totalCampaigns": {"value": total_campaigns or 0, "growth": "+0%"},
-                "leadsGenerated": {"value": total_leads or 0, "growth": "+0%"},
-                "conversionRate": {"value": conversion_rate or 0, "growth": "+0%"},
-                "revenue": {"value": int(revenue) or 0, "growth": "+0%"}
-            },
-            "trendData": trend_data,
-            "funnelData": funnel_data,
-            "channels": channel_data,
-            "campaigns": campaign_performance
-        }), 200
-
-    except Exception as e:
-        print(f"[FAIL] Analytics Error: {str(e)}")
-        # IMPORTANT: Even on error, return full structure
-        return jsonify({
-            "kpis": {
-                "totalCampaigns": {"value": 0, "growth": "+0%"},
-                "leadsGenerated": {"value": 0, "growth": "+0%"},
-                "conversionRate": {"value": 0, "growth": "+0%"},
-                "revenue": {"value": 0, "growth": "+0%"}
-            },
-            "trendData": [],
-            "funnelData": [],
-            "channels": [],
-            "campaigns": []
+        campaign_list.append({
+            "name": c.name,
+            "channel": c.channel,
+            "status": c.status,
+            "leads": leads,
+            "conversion": f"{conversion}%",
+            "revenue": f"₹{revenue}",
+            "date": str(date_val)
         })
+
+    total_campaigns = len(campaigns)
+    total_leads = sum((getattr(c, 'leads', 0) or 0) for c in campaigns)
+    total_revenue = sum((getattr(c, 'revenue', 0) or 0) for c in campaigns)
+
+    response = {
+        "kpis": {
+            "totalCampaigns": {"value": total_campaigns, "growth": "+0%"},
+            "leadsGenerated": {"value": total_leads, "growth": "+0%"},
+            "conversionRate": {"value": 0, "growth": "+0%"},
+            "totalRevenue": {"value": total_revenue, "growth": "+0%"}
+        },
+        "channels": [],   # keep empty as requested
+        "campaigns": campaign_list
+    }
+
+    print("FINAL RESPONSE:", response)
+
+    return jsonify(response)

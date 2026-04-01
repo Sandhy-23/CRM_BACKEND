@@ -1,3 +1,4 @@
+
 from extensions import db
 
 class Branch(db.Model):

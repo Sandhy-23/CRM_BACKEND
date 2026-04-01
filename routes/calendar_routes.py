@@ -30,7 +30,7 @@ def get_event_query(current_user):
         )
     )
 
-@calendar_bp.route('/calendar/events', methods=['POST'])
+@calendar_bp.route('/calendar/events', methods=['POST', 'OPTIONS'])
 @token_required
 def create_event(current_user):
     data = request.get_json()
@@ -71,15 +71,8 @@ def create_event(current_user):
             new_task = Task(
                 title=new_event.title,
                 description=new_event.description or f"Event: {new_event.title}",
-                task_date=task_date,
-                task_time=task_time,
-                status='Pending',
-                company_id=current_user.organization_id,
-                assigned_to=new_event.assigned_to,
                 created_by=current_user.id,
-                due_date=task_date,
-                source_type='calendar',
-                source_id=new_event.id
+                due_date=task_date
             )
             db.session.add(new_task)
             print(f"[INFO] Auto-creating task for Event ID {new_event.id}")
@@ -115,7 +108,7 @@ def create_event(current_user):
         print(f"❌ DB ERROR in create_event: {str(e)}")
         return jsonify({'error': 'Database error while creating event', 'message': str(e)}), 500
 
-@calendar_bp.route('/calendar/events', methods=['GET'])
+@calendar_bp.route('/calendar/events', methods=['GET', 'OPTIONS'])
 @token_required
 def get_events(current_user):
     base_query = get_event_query(current_user)
