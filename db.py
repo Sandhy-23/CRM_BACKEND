@@ -18,6 +18,6 @@ def get_engine(db_name):
         # Construct connection string
         db_url = f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
         
-        engine_cache[db_name] = create_engine(db_url)
+        engine_cache[db_name] = create_engine(db_url, pool_pre_ping=True)
         
     return engine_cache[db_name]

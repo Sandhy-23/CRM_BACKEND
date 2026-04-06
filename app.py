@@ -1,5 +1,8 @@
-from flask import Flask, request, jsonify, send_from_directory
 import os
+from dotenv import load_dotenv
+load_dotenv()  # 🔥 Load environment variables BEFORE anything else
+
+from flask import Flask, request, jsonify, send_from_directory
 import re
 import pymysql
 from flask_mail import Mail, Message
@@ -7,12 +10,12 @@ from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 from sqlalchemy import text, func, create_engine
 from flask_cors import CORS
-from werkzeug.security import check_password_hash, generate_password_hash
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt
 from datetime import datetime, timedelta
 from db import get_engine
 from config import Config
 from extensions import db
+from extensions import db, bcrypt
 from models.crm import Lead, Deal
 from models.team import Team
 from models.user import User
@@ -37,14 +40,18 @@ from routes.audit_logs import audit_log_bp
 from routes.contact_routes import contact_bp
 from routes.deal_routes import deal_bp
 from routes.task_routes import task_bp
+from routes.auth_routes import SUPER_ADMIN_PERMISSIONS
 from tenant_service import create_tenant_database, clone_database_structure, register_tenant, seed_tenant_data
 
-load_dotenv()
 app = Flask(__name__)
-# ✅ FIX 1: Clean CORS completely
-# ✅ STEP 3 & 4: Proper config for all routes and credentials
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+app.url_map.strict_slashes = False # 🔥 Global Fix: Non-strict slashes for all routes
+
+# ✅ FIX 1: Proper CORS config for your specific Frontend IP
+CORS(app, origins=["http://localhost:5173", "http://100.104.233.79:5173"], supports_credentials=True)
 app.config['CORS_HEADERS'] = 'Content-Type'
+
+# 🔥 DEBUG: Verify .env is loaded (Watch your terminal!)
+print("FRONTEND URL FROM ENV:", os.getenv("FRONTEND_URL"))
 
 # ✅ STEP 1 & 2: Set Secret Keys for Flask and JWT
 app.config['SECRET_KEY'] = 'your_super_secret_key'
@@ -112,23 +119,26 @@ def signup():
     name = data["name"]
     email = data["email"]
     password = data["password"]
+    
+    # ✅ STEP 2: Hash password correctly
+    hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
 
     engine = create_engine("mysql+pymysql://root:1234@localhost/master_db")
 
     with engine.begin() as conn:
-        # check duplicate email
+        # ✅ Mandatory duplicate check (case-insensitive)
         existing = conn.execute(
-            text("SELECT * FROM users WHERE email=:email"),
-            {"email": email}
+            text("SELECT * FROM users WHERE LOWER(email)=LOWER(:email)"),
+            {"email": email.strip()}
         ).fetchone()
 
         if existing:
-            return jsonify({"error": "Email already exists"}), 400
+            return jsonify({"error": "User already exists"}), 400
 
         conn.execute(text("""
             INSERT INTO users (name, email, password, role)
             VALUES (:name, :email, :password, 'Super Admin')
-        """), {"name": name, "email": email, "password": password})
+        """), {"name": name, "email": email, "password": hashed_password})
 
     return jsonify({"message": "Signup successful"}), 201
 
@@ -142,8 +152,10 @@ def simple_login():
             SELECT * FROM users WHERE email=:email
         """), {"email": data["email"]}).fetchone()
 
-    if not user:
-        return jsonify({"error": "Invalid user"}), 401
+    # ✅ STEP 5: Verify password with bcrypt.checkpw logic
+    if not user or not bcrypt.check_password_hash(user._mapping['password'], data["password"]):
+        print("❌ Invalid email or password")
+        return jsonify({"error": "Invalid email or password"}), 401
 
     return jsonify({"message": "Login success", "role": user._mapping['role']})
 
@@ -571,24 +583,27 @@ def auth_signup():
         if not email or not password:
             return jsonify({"error": "Email and password are required"}), 400
 
-        if User.query.filter_by(email=email).first():
+        # ✅ Check for existing user before attempting insert
+        if User.query.filter(func.lower(User.email) == email.lower()).first():
             return jsonify({"error": "User with this email already exists"}), 400
 
         # Ensure an organization exists (create default if table is empty)
         org = Organization.query.first()
         if not org:
-            org = Organization(name=f"{name}'s Organization" if name else "Default Organization", subscription_plan="Free")
+            org = Organization(name=f"{name}'s Organization" if name else "Default Organization", subscription_plan="Free", db_name="crm_db")
             db.session.add(org)
             db.session.commit()
 
         new_user = User(
             name=name,
             email=email,
-            password=generate_password_hash(password),
+            password=bcrypt.generate_password_hash(password).decode('utf-8'),
             role="Super Admin",
             organization_id=org.id,
             is_approved=True,
-            status="Active"
+            status="Active",
+            permissions=SUPER_ADMIN_PERMISSIONS,
+            must_change_password=True
         )
 
         db.session.add(new_user)
@@ -631,29 +646,32 @@ def login():
             print("❌ User not found")
             return jsonify({"error": "User not found"}), 404
 
-        # ✅ Step 4: Check password properly
+        # ✅ Step 4: Check password properly using bcrypt
         is_valid = False
         if user.password:
-            if user.password.startswith('pbkdf2:') or user.password.startswith('scrypt:'):
-                is_valid = check_password_hash(user.password, password)
-            else:
-                is_valid = (user.password == password)
+            is_valid = bcrypt.check_password_hash(user.password, password)
 
         if not is_valid:
             print("❌ Invalid password")
             return jsonify({"error": "Invalid password"}), 401
 
         # Fetch database name for routing
-        # Use session.get for SQLAlchemy 2.0 compatibility and getattr for safety
-        org = db.session.get(Organization, user.organization_id)
-        db_name = getattr(org, 'db_name', 'crm_db') if org else "crm_db"
+        # ✅ Fetch mapping using raw SQL as requested
+        org_stmt = text("SELECT db_name FROM organizations WHERE id = :id")
+        org_mapping = db.session.execute(org_stmt, {"id": user.organization_id}).fetchone()
+        
+        db_name = org_mapping[0] if org_mapping and org_mapping[0] else "crm_db"
+
+        # 🔹 LOAD PERMISSIONS FROM DB
+        permissions = user.permissions if user.permissions else {}
 
         # Create JWT Token with Claims
         additional_claims = {
             "email": user.email,
             "role": user.role,
             "organization_id": user.organization_id,
-            "db_name": db_name
+            "db_name": db_name,
+            "permissions": permissions # 🔥 Included in JWT for middleware
         }
 
         token = create_access_token(

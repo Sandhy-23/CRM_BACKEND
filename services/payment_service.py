@@ -6,7 +6,7 @@ import uuid
 CASHFREE_APP_ID = os.getenv("CASHFREE_APP_ID")
 CASHFREE_SECRET_KEY = os.getenv("CASHFREE_SECRET_KEY")
 CASHFREE_API_URL = os.getenv("CASHFREE_API_URL", "https://sandbox.cashfree.com/pg")
-FRONTEND_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
+FRONTEND_URL = os.getenv("FRONTEND_BASE_URL", "http://100.104.233.79:5173/")
 
 def create_cashfree_order(customer_id, customer_email, customer_phone, amount):
     """

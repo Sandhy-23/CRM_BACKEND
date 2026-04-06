@@ -1,131 +1,200 @@
 from flask import Blueprint, request, jsonify
 from extensions import db
-from models.ticket import Ticket, TicketComment
+from routes.ticket import SupportTicket, TicketMessage, TicketNote, TicketActivity
 from models.user import User
-from routes.auth_routes import token_required
-from datetime import datetime
+from models.organization import Organization
+from routes.auth_routes import token_required, permission_required
+from datetime import datetime, timedelta
 
 ticket_bp = Blueprint('tickets', __name__)
 
-# 1. Create Ticket
-@ticket_bp.route('/', methods=['POST'])
+# --- 🔹 STEP 2: HELPER FUNCTIONS ---
+
+def calculate_sla(ticket):
+    """Computes SLA status and time remaining dynamically."""
+    now = datetime.utcnow()
+    first_due = ticket.first_response_due_at
+    resolution_due = ticket.resolution_due_at
+
+    # Breach check
+    first_breached = first_due and now > first_due and not ticket.first_responded_at
+    resolution_breached = resolution_due and now > resolution_due and not ticket.resolved_at
+
+    # SLA Status
+    if first_breached or resolution_breached:
+        sla_status = "Breached"
+    else:
+        sla_status = "On Track"
+
+    # Time remaining calculation
+    if ticket.resolved_at:
+        time_remaining = "Met"
+    elif first_breached:
+        diff = now - first_due
+        time_remaining = f"-{int(diff.total_seconds() // 3600)}h {int((diff.total_seconds() // 60) % 60)}m"
+    else:
+        diff = first_due - now
+        time_remaining = f"{int(diff.total_seconds() // 3600)}h {int((diff.total_seconds() // 60) % 60)}m"
+
+    return sla_status, time_remaining, first_breached, resolution_breached
+
+# --- 🔹 STEP 3: CREATE TICKET ---
+
+@ticket_bp.route("/", methods=["POST"])
 @token_required
+@permission_required("Tickets", "create")
 def create_ticket(current_user):
     data = request.get_json()
     
-    new_ticket = Ticket(
-        subject=data.get('subject'),
-        description=data.get('description'),
-        priority=data.get('priority', 'Medium'),
-        category=data.get('category', 'General'),
-        contact_id=current_user.id, # Created by current user
-        organization_id=current_user.organization_id,
-        status='Open'
+    # Generate ID (TKT-001 format)
+    last_ticket = SupportTicket.query.order_by(SupportTicket.id.desc()).first()
+    new_id = f"TKT-{int(last_ticket.id.split('-')[1]) + 1:03}" if last_ticket else "TKT-001"
+
+    now = datetime.utcnow()
+    org = db.session.get(Organization, current_user.organization_id)
+
+    ticket = SupportTicket(
+        id=new_id,
+        title=data["title"],
+        description=data.get("description"),
+        priority=data["priority"],
+        category=data["category"],
+        submitted_by=current_user.name,
+        company=org.name if org else "Default",
+        created_at=now,
+        updated_at=now,
+        first_response_due_at=now + timedelta(hours=2),
+        resolution_due_at=now + timedelta(hours=24),
+        organization_id=current_user.organization_id
     )
-    
-    db.session.add(new_ticket)
-    db.session.flush() # Get ID to generate ticket number
-    
-    # Generate Ticket Number (e.g., TKT-1001)
-    new_ticket.ticket_number = f"TCK-{new_ticket.id + 1000}"
-    db.session.commit()
-    
-    return jsonify({"message": "Ticket created successfully", "ticket": new_ticket.to_dict()}), 201
 
-# 2. Get Tickets (Role Based Visibility)
-@ticket_bp.route('/', methods=['GET'])
+    db.session.add(ticket)
+    db.session.commit()
+    return jsonify({"message": "Ticket created", "id": new_id}), 201
+
+# --- 🔹 STEP 4: GET ALL TICKETS ---
+
+@ticket_bp.route("/", methods=["GET"])
 @token_required
+@permission_required("Tickets", "view")
 def get_tickets(current_user):
-    query = Ticket.query.filter_by(organization_id=current_user.organization_id)
-    
-    role = current_user.role.upper() if current_user.role else ""
-    
-    # Case 1: Super Admin / Admin / Manager -> See All
-    if role in ['SUPER_ADMIN', 'ADMIN', 'MANAGER']:
-        pass 
-    # Case 2: Employee -> See Assigned Only
-    elif role == 'EMPLOYEE':
-        query = query.filter_by(assigned_to=current_user.id)
-    # Case 3: User / Contact -> See Created Only
-    else:
-        query = query.filter_by(contact_id=current_user.id)
-        
-    tickets = query.order_by(Ticket.created_at.desc()).all()
+    tickets = SupportTicket.query.filter_by(organization_id=current_user.organization_id).all()
+    result = []
 
-    # Map to frontend-specific keys as requested
-    tickets_data = []
     for t in tickets:
-        tickets_data.append({
-            "id": t.id, # Keep ID for frontend keying
-            "Ticket #": t.ticket_number,
-            "Ticket": t.subject,
-            "Category": t.category,
-            "Priority": t.priority,
-            "Status": t.status,
-            "SLA Status": t.sla_due_at.strftime('%Y-%m-%d %H:%M:%S') if t.sla_due_at else "Not Set",
-            "Assignee": t.assignee.name if t.assignee else "Unassigned",
-            "Submitted By": t.creator.name if t.creator else "Unknown",
-            "Last Updated": t.updated_at.strftime('%Y-%m-%d %H:%M:%S') if t.updated_at else None
+        sla_status, time_remaining, fb, rb = calculate_sla(t)
+        result.append({
+            "id": t.id,
+            "title": t.title,
+            "status": t.status,
+            "priority": t.priority,
+            "assignee": t.assignee,
+            "submittedBy": t.submitted_by,
+            "createdAt": t.created_at.isoformat(),
+            "responses": t.responses,
+            "slaStatus": sla_status,
+            "timeRemaining": time_remaining
         })
-    return jsonify(tickets_data), 200
 
-# 3. Assign Ticket
-@ticket_bp.route('/<int:ticket_id>/assign', methods=['PUT'])
+    return jsonify({"tickets": result})
+
+# --- 🔹 STEP 5: SEND MESSAGE ---
+
+@ticket_bp.route("/<id>/messages", methods=["POST"])
 @token_required
-def assign_ticket(current_user, ticket_id):
-    # Only Admin/Manager can assign
-    if current_user.role not in ['SUPER_ADMIN', 'ADMIN', 'MANAGER']:
-        return jsonify({"error": "Unauthorized"}), 403
-        
-    ticket = Ticket.query.filter_by(id=ticket_id, organization_id=current_user.organization_id).first_or_404()
+@permission_required("Tickets", "edit")
+def send_message(current_user, id):
     data = request.get_json()
-    
-    employee_id = data.get('assigned_to')
-    if not employee_id:
-        return jsonify({"error": "Employee ID required"}), 400
-        
-    ticket.assigned_to = employee_id
-    ticket.status = 'In Progress' # Auto update status on assignment
-    db.session.commit()
-    
-    return jsonify({"message": "Ticket assigned successfully"}), 200
+    ticket = SupportTicket.query.get_or_404(id)
 
-# 4. Update Ticket Status
-@ticket_bp.route('/<int:ticket_id>', methods=['PUT'])
-@token_required
-def update_ticket(current_user, ticket_id):
-    ticket = Ticket.query.filter_by(id=ticket_id, organization_id=current_user.organization_id).first_or_404()
-    data = request.get_json()
-    
-    # Update fields if provided
-    if 'status' in data:
-        ticket.status = data['status']
-        if data['status'] in ['Resolved', 'Closed']:
-            ticket.closed_at = datetime.utcnow()
-            
-    if 'priority' in data:
-        ticket.priority = data['priority']
-        
-    db.session.commit()
-    return jsonify({"message": "Ticket updated", "ticket": ticket.to_dict()}), 200
+    message = TicketMessage(
+        ticket_id=id,
+        type=data["type"],
+        author=current_user.name,
+        body=data["body"]
+    )
 
-# 5. Get Employees for Dropdown
-@ticket_bp.route('/employees', methods=['GET'])
+    ticket.responses += 1
+    ticket.updated_at = datetime.utcnow()
+
+    # FIRST RESPONSE LOGIC
+    if data["type"] == "agent" and not ticket.first_responded_at:
+        ticket.first_responded_at = datetime.utcnow()
+
+    db.session.add(message)
+    db.session.commit()
+    return jsonify({"message": "Sent"})
+
+@ticket_bp.route("/<id>/messages", methods=["GET"])
 @token_required
-def get_employees_for_assignment(current_user):
-    if current_user.role not in ['SUPER_ADMIN', 'ADMIN', 'MANAGER']:
-        return jsonify({"error": "Unauthorized"}), 403
-        
-    # Fetch users with role 'Employee', 'Manager', or 'Admin' in the org
-    employees = User.query.filter(
-        User.organization_id == current_user.organization_id,
-        User.role.in_(['EMPLOYEE', 'ADMIN', 'MANAGER']),
-        User.is_deleted == False
-    ).all()
-    
+@permission_required("Tickets", "view")
+def get_messages(current_user, id):
+    messages = TicketMessage.query.filter_by(ticket_id=id).order_by(TicketMessage.created_at.asc()).all()
     return jsonify([{
-        "id": u.id,
-        "name": u.name,
-        "email": u.email,
-        "role": u.role
-    } for u in employees]), 200
+        "id": m.id,
+        "type": m.type,
+        "author": m.author,
+        "body": m.body,
+        "createdAt": m.created_at.isoformat()
+    } for m in messages])
+
+# --- 🔹 STEP 6: UPDATE STATUS ---
+
+@ticket_bp.route("/<id>/status", methods=["PUT"])
+@token_required
+@permission_required("Tickets", "edit")
+def update_status(current_user, id):
+    data = request.get_json()
+    ticket = SupportTicket.query.get_or_404(id)
+
+    ticket.status = data["status"]
+    ticket.updated_at = datetime.utcnow()
+
+    if data["status"] in ["Resolved", "Closed"]:
+        ticket.resolved_at = datetime.utcnow()
+
+    db.session.commit()
+    return jsonify({"message": "Updated"})
+
+# --- 🔹 STEP 7: ASSIGN USER ---
+
+@ticket_bp.route("/<id>/assign", methods=["PUT"])
+@token_required
+@permission_required("Tickets", "edit")
+def assign_ticket(current_user, id):
+    data = request.get_json()
+    ticket = SupportTicket.query.get_or_404(id)
+
+    ticket.assignee = data["assignee"]
+    ticket.updated_at = datetime.utcnow()
+
+    db.session.commit()
+    return jsonify({"message": "Assigned"})
+
+# --- 🔹 ADDITIONAL: NOTES & ACTIVITY ---
+
+@ticket_bp.route("/<id>/notes", methods=["POST"])
+@token_required
+@permission_required("Tickets", "edit")
+def add_note(current_user, id):
+    data = request.get_json()
+    note = TicketNote(
+        ticket_id=id,
+        author=current_user.name,
+        body=data["body"]
+    )
+    db.session.add(note)
+    db.session.commit()
+    return jsonify({"message": "Note added"})
+
+@ticket_bp.route("/<id>/activity", methods=["GET"])
+@token_required
+@permission_required("Tickets", "view")
+def get_activity(current_user, id):
+    activities = TicketActivity.query.filter_by(ticket_id=id).order_by(TicketActivity.created_at.desc()).all()
+    return jsonify([{
+        "id": a.id,
+        "action": a.action,
+        "color": a.color,
+        "createdAt": a.created_at.isoformat()
+    } for a in activities])

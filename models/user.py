@@ -22,6 +22,8 @@ class User(db.Model):
     organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'))
     provider = db.Column(db.String(20), default='email')
     provider_id = db.Column(db.String(100))
+    permissions = db.Column(db.JSON)
+    must_change_password = db.Column(db.Boolean, default=True)
 
     invite_token = db.Column(db.String(255))
     invite_expiry = db.Column(db.DateTime)

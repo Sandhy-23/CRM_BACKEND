@@ -7,6 +7,7 @@ def send_user_email(to_email, name, password):
     # Load credentials from .env
     from_email = os.getenv("MAIL_USERNAME")
     app_password = os.getenv("MAIL_PASSWORD")
+    frontend_url = os.getenv("FRONTEND_URL", "http://100.104.233.79:5173/")
 
     if not from_email or not app_password:
         print("❌ Email skipped: MAIL_USERNAME or MAIL_PASSWORD not set in .env")
@@ -23,7 +24,7 @@ def send_user_email(to_email, name, password):
         <h3>Here are your Login details:</h3>
 
         <div style="background:#222; padding:15px; border-radius:10px;">
-            <p><b>Web Address:</b><br> http://localhost:3000</p>
+            <p><b>Web Address:</b><br> {frontend_url}</p>
             <p><b>Username:</b><br> {to_email}</p>
             <p><b>Password:</b><br> {password}</p>
         </div>

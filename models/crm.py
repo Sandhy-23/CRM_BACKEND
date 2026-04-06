@@ -46,6 +46,7 @@ class Deal(db.Model):
     pipeline = db.Column(db.String(50))
     title = db.Column(db.String(100))
     company = db.Column(db.String(100))
+    lead_source = db.Column(db.String(100))
     stage = db.Column(db.String(50))
     status = db.Column(db.String(50), default='open')
     value = db.Column(db.Integer)

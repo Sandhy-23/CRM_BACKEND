@@ -1,14 +1,14 @@
 from flask import Blueprint, jsonify, request, current_app
-from routes.auth_routes import token_required, send_email
+from routes.auth_routes import token_required, send_email, ROLE_HIERARCHY
 from models.user import User, LoginHistory
 from models.organization import Organization
 from models.crm import Lead, Deal, Activity
 from models.campaign import Campaign
 from models.task import Task
-from extensions import db
+from extensions import db, bcrypt
+from db import get_engine
 from sqlalchemy import func, case, text
 from datetime import datetime, timedelta
-from werkzeug.security import generate_password_hash
 from models.attendance import Attendance
 from models.activity_log import ActivityLog
 from models.audit_log import AuditLog
@@ -269,8 +269,15 @@ def create_user(current_user):
     name = data.get("Full Name")
     email = data.get("email")
     password = data.get("password")
-    role = data.get("role")
-    # permissions = json.dumps(data.get("permissions"))
+    new_role = data.get("role")
+    permissions = data.get("permissions", {})
+
+    # 🔹 ROLE HIERARCHY CHECK
+    allowed_roles = ROLE_HIERARCHY.get(current_user.role, [])
+    if new_role not in allowed_roles:
+        return jsonify({
+            "error": f"Hierarchy Violation: {current_user.role} cannot create {new_role}"
+        }), 403
 
     # Check duplicate
     existing_user = User.query.filter_by(email=email).first()
@@ -280,9 +287,9 @@ def create_user(current_user):
     new_user = User(
         name=name,
         email=email,
-        password=generate_password_hash(password),
-        role=role,
-        # permissions=permissions, # Uncomment if permissions column exists
+        password=bcrypt.generate_password_hash(password).decode('utf-8'),
+        role=new_role,
+        permissions=permissions,
         organization_id=current_user.organization_id,
         status="Active",
         is_verified=True
@@ -566,60 +573,39 @@ def get_dashboard(current_user):
     """
     Returns dashboard summary metrics as per specific frontend requirements.
     """
-    # 1. Total Leads
-    total_leads = Lead.query.filter_by(organization_id=current_user.organization_id, is_deleted=False).count()
-    print("TOTAL LEADS:", total_leads) # Debug print as requested
+    # ✅ STEP 2: Create dynamic DB connection per request
+    engine = get_engine(current_user.tenant_db)
+    
+    with engine.connect() as conn:
+        # 1. Total Leads
+        total_leads = conn.execute(text(
+            "SELECT COUNT(*) FROM leads WHERE organization_id = :org_id AND is_deleted = 0"
+        ), {"org_id": current_user.organization_id}).scalar()
 
-    # 2. Active Deals (Not Won or Lost)
-    # Matches: SELECT COUNT(*) FROM deals WHERE status = 'Active' (mapped to stages)
-    active_deals = Deal.query.filter(
-        func.lower(Deal.stage).notin_(['won', 'closed won', 'lost', 'closed lost']),
-        Deal.is_deleted == False,
-        Deal.organization_id == current_user.organization_id
-    ).count()
+        # 2. Active Deals (Not Won or Lost)
+        active_deals = conn.execute(text("""
+            SELECT COUNT(*) FROM deals 
+            WHERE LOWER(stage) NOT IN ('won', 'closed won', 'lost', 'closed lost')
+            AND is_deleted = 0 AND organization_id = :org_id
+        """), {"org_id": current_user.organization_id}).scalar()
 
-    # 3. Revenue (This Quarter)
-    # Matches: SELECT SUM(amount) ... WHERE QUARTER(closed_at) = QUARTER(CURDATE())
-    today = datetime.utcnow().date()
-    current_month = today.month
-    current_year = today.year
+        # 3. Revenue (Simplified sum for requested logic)
+        revenue = conn.execute(text("""
+            SELECT SUM(value) FROM deals 
+            WHERE LOWER(stage) IN ('won', 'closed won')
+            AND organization_id = :org_id AND is_deleted = 0
+        """), {"org_id": current_user.organization_id}).scalar() or 0
 
-    current_quarter = (current_month - 1) // 3 + 1
-    quarter_start_month = (current_quarter - 1) * 3 + 1
-    quarter_start_date = date(current_year, quarter_start_month, 1)
-
-    # Calculate start of next quarter to define the upper bound
-    if quarter_start_month + 3 > 12:
-        next_q_start = today.replace(year=today.year + 1, month=1, day=1)
-    else:
-        next_q_start = today.replace(month=quarter_start_month + 3, day=1)
-
-    revenue = db.session.query(func.sum(Deal.value)).filter(
-        func.lower(Deal.stage).in_(['won', 'closed won']),
-        Deal.close_date >= quarter_start_date,
-        Deal.close_date < next_q_start,
-        Deal.is_deleted == False,
-        Deal.organization_id == current_user.organization_id
-    ).scalar() or 0
-
-    # 4. Tasks Due (Today or Future)
-    tasks_due = Task.query.filter(
-        Task.due_date >= today,
-        Task.organization_id == current_user.organization_id
-    ).count()
-
-    # 5. Overdue Tasks (Past)
-    overdue_tasks = Task.query.filter(
-        Task.due_date < today,
-        Task.organization_id == current_user.organization_id
-    ).count()
+        # 4. Tasks Due (Today)
+        tasks_due = conn.execute(text(
+            "SELECT COUNT(*) FROM tasks WHERE due_date >= CURDATE() AND organization_id = :org_id"
+        ), {"org_id": current_user.organization_id}).scalar()
 
     result = {
         "total_leads": total_leads,
         "active_deals": active_deals,
         "revenue": int(revenue),
-        "tasks_due": tasks_due,
-        "overdue_tasks": overdue_tasks
+        "tasks_due": tasks_due
     }
 
     print(f"[DEBUG] Dashboard summary result: {result}")
@@ -983,14 +969,170 @@ def get_marketing_dashboard(current_user):
     except Exception as e:
         print(f"[FAIL] Marketing Dashboard Error: {e}")
         return jsonify({
-            "kpis": {
+            "kpis": { # Corrected indentation here
                 "totalCampaigns": {"value": 0, "growth": "+0%"},
                 "leadsGenerated": {"value": 0, "growth": "+0%"},
                 "conversionRate": {"value": "0%", "growth": "+0%"},
                 "totalRevenue": {"value": "₹0", "growth": "+0%"}
             },
-            "trendData": [],
-            "funnelData": [],
-            "channels": [],
-            "campaigns": []
-        })
+        "trendData": [],
+        "funnelData": [],
+        "channels": [],
+        "campaigns": []
+    })
+# Fixed get_pipeline_type logic to strictly follow priority
+def get_pipeline_type(value, lead_source):
+    """
+    Priority Logic:
+    1. Partnership: If source is Partner or Referral
+    2. Enterprise: If value >= 1,000,000
+    3. Sales: Default
+    """
+    if lead_source in ['Partner', 'Referral']:
+        return 'Partnership'
+    elif (value or 0) >= 1000000:
+        return 'Enterprise'
+    return 'Sales'
+
+@dashboard_bp.route("/api/dashboard/pipeline", methods=['GET'])
+@token_required
+def get_pipeline(current_user):
+    """
+    Returns Kanban board data grouped by stage based on pipeline type filtering.
+    """
+    pipeline_type_filter = request.args.get('type', 'all').lower()
+
+    # Join with Lead to access lead_source (source in our model)
+    query = db.session.query(Deal, Lead.source.label('lead_source')).outerjoin(Lead, Deal.lead_id == Lead.id).filter(
+        Deal.organization_id == current_user.organization_id,
+        Deal.is_deleted == False
+    )
+
+    all_results = query.all()
+
+    filtered_deals = []
+    for deal_obj, lead_source in all_results:
+        pipeline_classification = get_pipeline_type(deal_obj.value, lead_source)
+
+        if pipeline_type_filter == "all" or pipeline_classification.lower() == pipeline_type_filter:
+            # Ensure the object has the dynamic pipeline attribute
+            deal_obj.pipeline = pipeline_classification
+            filtered_deals.append(deal_obj)
+
+    result = {
+        "proposal": [],
+        "negotiation": [],
+        "won": [],
+        "lost": []
+    }
+
+    for deal in filtered_deals:
+        stage = deal.stage.lower() if deal.stage else "unknown"
+
+        if stage in result:
+            result[stage].append({
+                "id": deal.id,
+                "title": deal.title,
+                "company": deal.company,
+                "value": deal.value,
+                "date": deal.close_date.isoformat() if deal.close_date else (deal.created_at.isoformat() if deal.created_at else None)
+            })
+            
+    return jsonify(result)
+
+@dashboard_bp.route("/api/dashboard/leads-funnel", methods=['GET'])
+@token_required
+def leads_funnel(current_user):
+    org_id = current_user.organization_id
+    
+    # Awareness: Leads created in the last 90 days
+    ninety_days_ago = datetime.utcnow() - timedelta(days=90)
+    awareness_count = Lead.query.filter(
+        Lead.organization_id == org_id,
+        Lead.created_at >= ninety_days_ago,
+        (Lead.is_deleted == False) | (Lead.is_deleted.is_(None))
+    ).count()
+
+    # Interest: Leads with status 'Contacted' or 'Interested'
+    interest_count = Lead.query.filter(
+        Lead.organization_id == org_id,
+        Lead.status.in_(['Contacted', 'Interested']),
+        (Lead.is_deleted == False) | (Lead.is_deleted.is_(None))
+    ).count()
+
+    # Qualified: Leads with status 'Qualified' or 'Hot'
+    qualified_count = Lead.query.filter(
+        Lead.organization_id == org_id,
+        Lead.status.in_(['Qualified', 'Hot']),
+        (Lead.is_deleted == False) | (Lead.is_deleted.is_(None))
+    ).count()
+
+    # Negotiation: Deals in 'Negotiation' or 'Proposal' stage
+    negotiation_count = Deal.query.filter(
+        Deal.organization_id == org_id,
+        Deal.stage.in_(['Negotiation', 'Proposal']),
+        (Deal.is_deleted == False) | (Deal.is_deleted.is_(None))
+    ).count()
+
+    # Customer: Deals with stage 'Won'
+    customer_count = Deal.query.filter(
+        Deal.organization_id == org_id,
+        Deal.stage == 'Won',
+        (Deal.is_deleted == False) | (Deal.is_deleted.is_(None))
+    ).count()
+
+    funnel_data = [
+        {"stage": "Awareness", "count": awareness_count},
+        {"stage": "Interest", "count": interest_count},
+        {"stage": "Qualified", "count": qualified_count},
+        {"stage": "Negotiation", "count": negotiation_count},
+        {"stage": "Customer", "count": customer_count}
+    ]
+
+    return jsonify(funnel_data)
+
+@dashboard_bp.route('/api/dashboard/summary-metrics', methods=['GET'])
+@token_required
+def get_summary_metrics(current_user):
+    """
+    Returns top row summary metrics: Total Pipeline, Deals in Progress, Expected Revenue.
+    Metrics are scoped to the filtered pipeline type.
+    """
+    pipeline_type_filter = request.args.get('type', 'all').lower()
+    org_id = current_user.organization_id
+
+    # Fetch deals for processing
+    query = db.session.query(Deal, Lead.source.label('lead_source')).outerjoin(Lead, Deal.lead_id == Lead.id).filter(
+        Deal.organization_id == org_id,
+        Deal.is_deleted == False
+    )
+    all_results = query.all()
+
+    total_pipeline = 0
+    deals_in_progress = 0
+    expected_revenue = 0
+
+    for deal, lead_source in all_results:
+        pipeline_classification = get_pipeline_type(deal.value, lead_source)
+
+        if pipeline_type_filter == "all" or pipeline_classification.lower() == pipeline_type_filter:
+            val = deal.value or 0
+            total_pipeline += val
+            
+            stage = deal.stage.capitalize() if deal.stage else ""
+            if stage not in ['Won', 'Lost']:
+                deals_in_progress += 1
+            
+            # Weighted probability calculation
+            if stage == 'Proposal':
+                expected_revenue += (val * 0.4)
+            elif stage == 'Negotiation':
+                expected_revenue += (val * 0.8)
+            elif stage == 'Won':
+                expected_revenue += val
+
+    return jsonify({
+        "total_pipeline": int(total_pipeline),
+        "deals_in_progress": deals_in_progress,
+        "expected_revenue": int(expected_revenue)
+    })

@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from extensions import db
 from models.contact import Contact
-from models.ticket import Ticket
+from routes.ticket import SupportTicket
 from models.feedback import Feedback
 from models.customer_health import CustomerHealth
 from routes.auth_routes import token_required
@@ -22,16 +22,16 @@ def calculate_nps(contact_id):
 
 def get_open_tickets(contact_id):
     """Counts open tickets for a contact."""
-    return Ticket.query.filter(
-        Ticket.contact_id == contact_id,
-        Ticket.status.in_(['Open', 'In Progress', 'Pending'])
+    return SupportTicket.query.filter(
+        SupportTicket.submitted_by == str(contact_id), # Assuming ID mapping
+        SupportTicket.status.in_(['Open', 'In Progress', 'Pending'])
     ).count()
 
 def get_sla_breaches(contact_id):
     """Counts SLA breaches for a contact."""
-    return Ticket.query.filter_by(
-        contact_id=contact_id,
-        sla_breached=True
+    return SupportTicket.query.filter_by(
+        submitted_by=str(contact_id),
+        resolution_breached=True
     ).count()
 
 def get_health_status(score):

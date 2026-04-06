@@ -1,20 +1,18 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_cors import cross_origin
-from extensions import db
+from extensions import db, bcrypt
 from models.user import User, LoginHistory
 from models.organization import Organization
 from models.otp_verification import OtpVerification
 from models.password_reset import PasswordResetToken
 from models.pipeline import Pipeline, PipelineStage
-from flask_jwt_extended import create_access_token, verify_jwt_in_request, get_jwt_identity
-from werkzeug.security import generate_password_hash, check_password_hash
+from flask_jwt_extended import create_access_token, verify_jwt_in_request, get_jwt_identity, get_jwt
 import datetime
-from flask import Blueprint, request, jsonify
 import random
 import secrets
 import urllib.parse
 from functools import wraps
-from sqlalchemy import text
+from sqlalchemy import text, func
 import re
 import smtplib
 from email.mime.text import MIMEText
@@ -25,6 +23,26 @@ import requests
 
 auth_bp = Blueprint('auth', __name__)
 social_bp = Blueprint('social_auth', __name__)
+
+# 🔹 ROLE HIERARCHY DEFINITION
+ROLE_HIERARCHY = {
+    "Super Admin": ["Admin", "Manager", "Employee"],
+    "Admin": ["Manager", "Employee"],
+    "Manager": ["Employee"],
+    "Employee": []
+}
+
+# Default permissions for Super Admin
+SUPER_ADMIN_PERMISSIONS = {
+    "Leads": {"view": True, "create": True, "edit": True, "delete": True, "export": True},
+    "Deals": {"view": True, "create": True, "edit": True, "delete": True, "export": True},
+    "Contacts": {"view": True, "create": True, "edit": True, "delete": True, "export": True},
+    "Reports": {"view": True, "create": True, "edit": True, "delete": True, "export": True},
+    "Tasks": {"view": True, "create": True, "edit": True, "delete": True, "export": True},
+    "Tickets": {"view": True, "create": True, "edit": True, "delete": True, "export": True},
+    "Marketing": {"view": True, "create": True, "edit": True, "delete": True, "export": True},
+    "Settings": {"view": True, "create": True, "edit": True, "delete": True, "export": True}
+}
 
 # --- Helper Functions ---
 
@@ -96,12 +114,16 @@ def token_required(f):
 
         try:
             verify_jwt_in_request()
+            claims = get_jwt()
             user_id = get_jwt_identity()
+            
             current_user = User.query.get(int(user_id))
             if not current_user:
                 print(f"[FAIL] Auth Error: User ID {user_id} not found in database.")
                 return jsonify({"error": "Unauthorized", "message": "User not found"}), 401
 
+            # Attach db_name to the user object temporarily for route access
+            current_user.tenant_db = claims.get("db_name", "crm_db")
         except Exception as e:
             print(f"[FAIL] Auth Error: Token verification failed. {str(e)}")
             return jsonify({"error": "Unauthorized", "message": str(e)}), 401
@@ -109,18 +131,42 @@ def token_required(f):
         return f(current_user, *args, **kwargs)
     return decorated
 
+def permission_required(module, action):
+    def decorator(f):
+        @wraps(f)
+        def wrapper(current_user, *args, **kwargs):
+            # 🔥 SUPER ADMIN BYPASS
+            if current_user.role == "Super Admin":
+                return f(current_user, *args, **kwargs)
+                
+            # Retrieve permissions from the JWT claims
+            claims = get_jwt()
+            permissions = claims.get("permissions") or {}
+            
+            module_perms = permissions.get(module, {})
+            if not module_perms.get(action, False):
+                return jsonify({
+                    "error": "Forbidden", 
+                    "message": f"Access denied: Missing '{action}' permission for '{module}'"
+                }), 403
+                
+            return f(current_user, *args, **kwargs)
+        return wrapper
+    return decorator
+
 def construct_dashboard_url(user):
     """
     Generates the dashboard URL with subdomain based on organization name.
-    - Local Dev: http://<org-slug>.<product>.lvh.me:3000/t/home
+    - Local Dev: http://<org-slug>.<product>.lvh.me:5173/dashboard
     - Production: https://<org-slug>.<domain>/t/home
     """
-    base_url = os.environ.get('FRONTEND_BASE_URL', 'http://localhost:3000')
+    # Use FRONTEND_URL to match your .env configuration
+    base_url = os.getenv('FRONTEND_URL', 'http://100.104.233.79:5173/')
     product_name = os.environ.get('PRODUCT_NAME', 'rvhcrm') # e.g., 'rvhcrm'
 
     parsed = urllib.parse.urlparse(base_url)
     scheme = parsed.scheme or 'http'
-    netloc = parsed.netloc # e.g., localhost:3000 or graphy.com
+    netloc = parsed.netloc # e.g., 100.104.233.79:5173 or graphy.com
 
     # Use email username (part before @) as the subdomain
     email_part = user.email.split('@')[0]
@@ -134,7 +180,7 @@ def construct_dashboard_url(user):
     # Check if we are in a local development environment
     if 'localhost' in netloc or '127.0.0.1' in netloc:
         # Use lvh.me format for local dev, as it resolves all subdomains to 127.0.0.1
-        # e.g., http://my-org.graphy.lvh.me:3000/t/home
+        # e.g., http://my-org.graphy.lvh.me:5173/dashboard
         return f"{scheme}://{org_slug}.{product_name}.com/dashboard"
     else:
         # Production format
@@ -147,7 +193,7 @@ def _create_user_with_organization(name, email, password_hash, provider=None, pr
     Returns the newly created user.
     """
     # Every new signup is a SUPER_ADMIN with their own organization.
-    role = "SUPER_ADMIN"
+    role = "Super Admin"
     org_name = f"{name}'s Organization" if name else f"{email.split('@')[0]}'s Org"
     
     # Create Org
@@ -166,7 +212,9 @@ def _create_user_with_organization(name, email, password_hash, provider=None, pr
         status="Active",
         organization_id=org_id,
         provider=provider,
-        provider_id=provider_id
+        provider_id=provider_id,
+        permissions=SUPER_ADMIN_PERMISSIONS, # Full permissions for Super Admin
+        must_change_password=True
     )
     db.session.add(new_user)
     db.session.flush() # Get user ID
@@ -222,7 +270,7 @@ def signup():
         email=email,
         otp=otp,
         name=name,
-        password_hash=generate_password_hash(password),
+        password_hash=bcrypt.generate_password_hash(password).decode('utf-8'),
         expiry=expiry
     )
     try:
@@ -293,7 +341,7 @@ def verify_otp():
         return jsonify({"message": "User already verified. Please login."}), 200
 
     try:
-        _create_user_with_organization(
+        new_user = _create_user_with_organization(
             name=record.name,
             email=email,
             password_hash=record.password_hash
@@ -301,7 +349,7 @@ def verify_otp():
         db.session.delete(record) # Remove OTP record
         db.session.commit()
 
-        print(f"[OK] User created successfully: {email} (Role: {role})")
+        print(f"[OK] User created successfully: {email} (Role: {new_user.role})")
         return jsonify({"message": "Signup successful"}), 200
 
     except Exception as e:
@@ -374,7 +422,8 @@ def login():
     if not email or not password:
         return jsonify({"error": "Missing credentials", "message": "Both email and password are required"}), 400
 
-    user = User.query.filter_by(email=email).first()
+    # ✅ Step 2: Query correctly (case-insensitive)
+    user = User.query.filter(func.lower(User.email) == email).first()
 
     # --- DEBUG START (Requested for troubleshooting) ---
     print(f"--- LOGIN DEBUG ---")
@@ -388,18 +437,28 @@ def login():
         print(f"[FAIL] Login Failed: User '{email}' not found in DB.")
         return jsonify({"error": "Invalid email or password"}), 401
 
-    if not check_password_hash(user.password, password):
-        print(f"[FAIL] Login Failed: Password mismatch for '{email}'.")
+    # ✅ Step 4: Check password properly
+    is_valid = False
+    if user.password:
+        try:
+            is_valid = bcrypt.check_password_hash(user.password, password)
+        except ValueError:
+            print(f"[FAIL] Login Failed: Password in DB for '{email}' is not a valid bcrypt hash.")
+            is_valid = False
+
+    if not is_valid:
+        print("❌ Invalid password")
         return jsonify({"error": "Invalid email or password"}), 401
 
     # 1.1 Check if user is verified from signup
     if not user.is_verified:
         return jsonify({"error": "Account not verified. Please complete the signup OTP verification first."}), 403
 
-    # Fetch organization db_name for multi-tenancy routing
-    # Using session.get and getattr to prevent 'AttributeError: db_name'
-    org = db.session.get(Organization, user.organization_id)
-    db_name = getattr(org, 'db_name', 'crm_db') if org else "crm_db"
+    # ✅ Fetch mapping using raw SQL as requested
+    org_stmt = text("SELECT db_name FROM organizations WHERE id = :id")
+    org_mapping = db.session.execute(org_stmt, {"id": user.organization_id}).fetchone()
+    
+    db_name = org_mapping[0] if org_mapping and org_mapping[0] else "crm_db"
 
     # 2. Success - Generate Token & URL directly
     access_token = create_access_token(
@@ -409,7 +468,8 @@ def login():
             "email": user.email, 
             "role": user.role,
             "organization_id": user.organization_id,
-            "db_name": db_name
+            "db_name": db_name,
+            "permissions": user.permissions # 🔥 STEP 3: Include permissions in JWT
         }
     )
 
@@ -502,7 +562,7 @@ def handle_oauth_login(email, name, provider, provider_id):
             user = _create_user_with_organization(
                 name=name,
                 email=email,
-                password_hash=generate_password_hash(generate_otp()), # Random password for OAuth users
+                password_hash=bcrypt.generate_password_hash(generate_otp()).decode('utf-8'), # Random password for OAuth users
                 provider=provider,
                 provider_id=provider_id
             )
@@ -621,7 +681,7 @@ def reset_password():
         return jsonify({'message': 'User not found'}), 404
 
     try:
-        user.password = generate_password_hash(new_password)
+        user.password = bcrypt.generate_password_hash(new_password).decode('utf-8')
 
         # 6. Mark OTP as used (Delete it)
         db.session.delete(otp_record)
