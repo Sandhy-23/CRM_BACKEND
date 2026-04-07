@@ -1,20 +1,18 @@
 import os
-from dotenv import load_dotenv
-load_dotenv()  # 🔥 Load environment variables BEFORE anything else
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv())  # 🔥 Use find_dotenv to ensure the file is located correctly
 
 from flask import Flask, request, jsonify, send_from_directory
 import re
 import pymysql
 from flask_mail import Mail, Message
 from werkzeug.utils import secure_filename
-from dotenv import load_dotenv
 from sqlalchemy import text, func, create_engine
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt
 from datetime import datetime, timedelta
 from db import get_engine
 from config import Config
-from extensions import db
 from extensions import db, bcrypt
 from models.crm import Lead, Deal
 from models.team import Team
@@ -47,7 +45,11 @@ app = Flask(__name__)
 app.url_map.strict_slashes = False # 🔥 Global Fix: Non-strict slashes for all routes
 
 # ✅ FIX 1: Proper CORS config for your specific Frontend IP
-CORS(app, origins=["http://localhost:5173", "http://100.104.233.79:5173"], supports_credentials=True)
+CORS(
+    app,
+    resources={r"/*": {"origins": "*"}},
+    supports_credentials=True
+)
 app.config['CORS_HEADERS'] = 'Content-Type'
 
 # 🔥 DEBUG: Verify .env is loaded (Watch your terminal!)
@@ -614,8 +616,10 @@ def auth_signup():
         print(f"❌ Signup Route Error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
 
-@app.route('/auth/login', methods=['POST'])
+@app.route('/auth/login', methods=['POST', 'OPTIONS'])
 def login():
+    if request.method == 'OPTIONS':
+        return '', 200
     try:
         data = request.get_json()
         if not data:

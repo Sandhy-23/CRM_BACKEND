@@ -261,6 +261,11 @@ def get_deal_analytics(current_user):
         won = conn.execute(text("SELECT COUNT(*) FROM deals WHERE stage = 'Won' AND organization_id = :org_id"), {"org_id": current_user.organization_id}).scalar()
         lost = conn.execute(text("SELECT COUNT(*) FROM deals WHERE stage = 'Lost' AND organization_id = :org_id"), {"org_id": current_user.organization_id}).scalar()
         in_progress = conn.execute(text("SELECT COUNT(*) FROM deals WHERE stage NOT IN ('Won', 'Lost') AND organization_id = :org_id"), {"org_id": current_user.organization_id}).scalar()
+
+        # ✅ Step 2 & 3: Define required analytics variables
+        open_deals = conn.execute(text("SELECT COUNT(*) FROM deals WHERE status = 'open' AND organization_id = :org_id"), {"org_id": current_user.organization_id}).scalar() or 0
+        won_deals = conn.execute(text("SELECT COUNT(*) FROM deals WHERE status = 'won' AND organization_id = :org_id"), {"org_id": current_user.organization_id}).scalar() or 0
+        lost_deals = conn.execute(text("SELECT COUNT(*) FROM deals WHERE status = 'lost' AND organization_id = :org_id"), {"org_id": current_user.organization_id}).scalar() or 0
         
         # 2. Total Value
         total_value = conn.execute(text("SELECT SUM(value) FROM deals WHERE stage NOT IN ('Won', 'Lost') AND organization_id = :org_id"), {"org_id": current_user.organization_id}).scalar() or 0
@@ -275,18 +280,9 @@ def get_deal_analytics(current_user):
         { "label": "Competitor Chosen", "value": 22 }
     ]
     
+    # ✅ Step 4: Return properly
     return jsonify({
-        "summary": {
-            "total_value": int(total_value),
-            "open_deals": open_deals,
-            "won": won,
-            "lost": lost
-        },
-        "win_loss": {
-            "won": won,
-            "lost": lost,
-            "in_progress": in_progress
-        },
-        "win_reasons": win_reasons,
-        "loss_reasons": loss_reasons
+        "open_deals": open_deals,
+        "won_deals": won_deals,
+        "lost_deals": lost_deals
     })

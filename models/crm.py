@@ -16,7 +16,7 @@ class Lead(db.Model):
     sla = db.Column(db.String(20))
     owner = db.Column(db.String(100), nullable=True)
     campaign_id = db.Column(db.String(36), db.ForeignKey('campaigns.id'), nullable=True)
-    description = db.Column(db.Text) # Temporarily disabled
+    description = db.Column(db.Text)
     assigned_team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
     assigned_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'), nullable=True)
