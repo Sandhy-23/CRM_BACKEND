@@ -19,11 +19,12 @@ def get_leads(current_user):
     if request.method == 'OPTIONS':
         return '', 200
     try:
-        # ✅ Dynamic DB Switching
+        # ✅ STEP 1 & 2: Use organization_id and correct filters
+        org_id = current_user.organization_id
         engine = get_engine(current_user.tenant_db)
         
         with engine.connect() as conn:
-            result = conn.execute(text("SELECT * FROM leads WHERE is_deleted = 0")).fetchall()
+            result = conn.execute(text("SELECT * FROM leads WHERE organization_id = :org_id AND is_deleted = 0"), {"org_id": org_id}).fetchall()
             # Convert row objects to dictionaries manually since we are using raw SQL for tenant isolation
             leads_list = []
             for row in result:
@@ -33,6 +34,10 @@ def get_leads(current_user):
                     if isinstance(v, (datetime, date)):
                         row_dict[k] = str(v)
                 leads_list.append(row_dict)
+
+        # ✅ STEP 7: Debug logs
+        print("ORG ID:", org_id)
+        print("Leads Count:", len(leads_list))
 
         return jsonify(leads_list)
     except Exception as e:

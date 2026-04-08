@@ -122,6 +122,7 @@ def token_required(f):
                 print(f"[FAIL] Auth Error: User ID {user_id} not found in database.")
                 return jsonify({"error": "Unauthorized", "message": "User not found"}), 401
 
+            print(f"[OK] Auth Success: {current_user.email} ({current_user.role})")
             # Attach db_name to the user object temporarily for route access
             current_user.tenant_db = claims.get("db_name", "crm_db")
         except Exception as e:

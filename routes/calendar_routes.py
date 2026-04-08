@@ -33,18 +33,33 @@ def get_event_query(current_user):
 @calendar_bp.route('/calendar/events', methods=['POST', 'OPTIONS'])
 @token_required
 def create_event(current_user):
+    # ✅ STEP 2: Confirm correct DB connection
+    print("--- DEBUG: Calendar DB Connection ---")
+    print("DB URL:", db.engine.url)
+
     data = request.get_json()
+    print("REQUEST DATA:", data) # ✅ STEP 1: Print request
+
+    # ✅ STEP 2: Strict validation
+    required_fields = ["title", "start_datetime", "end_datetime", "assigned_to"]
+    for field in required_fields:
+        if not data.get(field):
+            return jsonify({"error": f"{field} is required"}), 400
+
     title = data.get('title')
     start_datetime_str = data.get('start_datetime')
 
-    if not title or not start_datetime_str:
-        return jsonify({'error': 'title and start_datetime are required'}), 400
-
     try:
         start_datetime = datetime.fromisoformat(start_datetime_str.replace('Z', '+00:00'))
-        end_datetime = datetime.fromisoformat(data['end_datetime'].replace('Z', '+00:00')) if data.get('end_datetime') else None
+        end_datetime = datetime.fromisoformat(data['end_datetime'].replace('Z', '+00:00'))
     except ValueError:
         return jsonify({'error': 'Invalid datetime format. Use ISO 8601 format.'}), 400
+
+    # ✅ STEP 3: Validate assigned_to again
+    assigned_to_id = data.get("assigned_to")
+    assigned_user = User.query.get(assigned_to_id)
+    if not assigned_user:
+        return jsonify({"error": "Invalid assigned_to"}), 400
 
     new_event = CalendarEvent(
         title=title,
@@ -55,7 +70,7 @@ def create_event(current_user):
         related_type=data.get('related_type'),
         related_id=data.get('related_id'),
         created_by=current_user.id,
-        assigned_to=data.get('assigned_to', current_user.id),
+        assigned_to=assigned_to_id,
         company_id=current_user.organization_id
     )
 

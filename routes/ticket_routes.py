@@ -51,6 +51,7 @@ def get_tickets(current_user):
         result.append({ # Changed keys to match requested output
             "Ticket #": t.id,
             "Ticket": t.title,
+            "description": t.description,
             "Category": t.category,
             "Priority": t.priority,
             "Status": t.status,
@@ -69,24 +70,27 @@ def get_tickets(current_user):
 def send_message(current_user, id):
     if not id or id == "undefined":
         return jsonify({"error": "Invalid ticket id"}), 400
-    data = request.get_json()
-    print("Incoming data:", data)
 
-    # ✅ STEP 3: Validation (Don't skip)
-    if not data or not (data.get("body") or data.get("message")):
-        return jsonify({"error": "Message body is required"}), 400
+    # ✅ Step 4: Debug print (See what is actually coming)
+    data = request.get_json()
+    print("--- DEBUG: Incoming Message Data ---")
+    print(data)
+    print("-------------------------------------")
+
+    # ✅ Step 2: Validation (Check what backend expects)
+    if not data or not data.get("message"):
+        return jsonify({"error": "Message is required"}), 400
 
     if not data.get("type"):
         return jsonify({"error": "Type is required"}), 400
 
     ticket = SupportTicket.query.get_or_404(id)
 
-    # ✅ STEP 2 & 4: Safe access and full corrected logic
     message = TicketMessage(
         ticket_id=id,
-        type=data.get("type"),
+        type=data["type"], # Now safe because of validation above
         author=current_user.name,
-        body=data.get("body") or data.get("message")
+        body=data["message"]
     )
     ticket.updated_at = datetime.utcnow() # Keep updated_at
 

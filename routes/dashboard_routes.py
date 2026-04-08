@@ -567,49 +567,30 @@ def deals_pipeline(current_user):
 
 # --- NEW DASHBOARD ANALYTICS ENDPOINTS (Final JSON Target) ---
 
-@dashboard_bp.route('/dashboard', methods=['GET', 'OPTIONS'])
+@dashboard_bp.route('/dashboard/summary', methods=['GET', 'OPTIONS'])
 @token_required
-def get_dashboard(current_user):
+def get_dashboard_summary(current_user):
     """
     Returns dashboard summary metrics as per specific frontend requirements.
     """
-    # ✅ STEP 2: Create dynamic DB connection per request
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    org_id = current_user.organization_id
     engine = get_engine(current_user.tenant_db)
     
     with engine.connect() as conn:
-        # 1. Total Leads
-        total_leads = conn.execute(text(
-            "SELECT COUNT(*) FROM leads WHERE organization_id = :org_id AND is_deleted = 0"
-        ), {"org_id": current_user.organization_id}).scalar()
+        # ✅ STEP 3 & 4: Fix Dashboard API & Remove extra filters
+        query = text("SELECT COUNT(*) FROM leads WHERE organization_id = :org_id AND is_deleted = 0")
+        total_leads = conn.execute(query, {"org_id": org_id}).scalar() or 0
 
-        # 2. Active Deals (Not Won or Lost)
-        active_deals = conn.execute(text("""
-            SELECT COUNT(*) FROM deals 
-            WHERE LOWER(stage) NOT IN ('won', 'closed won', 'lost', 'closed lost')
-            AND is_deleted = 0 AND organization_id = :org_id
-        """), {"org_id": current_user.organization_id}).scalar()
+    # ✅ STEP 7: Debug logs
+    print("ORG ID:", org_id)
+    print("Dashboard Count:", total_leads)
 
-        # 3. Revenue (Simplified sum for requested logic)
-        revenue = conn.execute(text("""
-            SELECT SUM(value) FROM deals 
-            WHERE LOWER(stage) IN ('won', 'closed won')
-            AND organization_id = :org_id AND is_deleted = 0
-        """), {"org_id": current_user.organization_id}).scalar() or 0
-
-        # 4. Tasks Due (Today)
-        tasks_due = conn.execute(text(
-            "SELECT COUNT(*) FROM tasks WHERE due_date >= CURDATE() AND organization_id = :org_id"
-        ), {"org_id": current_user.organization_id}).scalar()
-
-    result = {
-        "total_leads": total_leads,
-        "active_deals": active_deals,
-        "revenue": int(revenue),
-        "tasks_due": tasks_due
-    }
-
-    print(f"[DEBUG] Dashboard summary result: {result}")
-    return jsonify(result)
+    return jsonify({
+        "total_leads": total_leads
+    })
 
 @dashboard_bp.route('/dashboard/win-loss', methods=['GET'])
 @token_required

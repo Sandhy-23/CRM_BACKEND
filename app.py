@@ -38,6 +38,7 @@ from routes.audit_logs import audit_log_bp
 from routes.contact_routes import contact_bp
 from routes.deal_routes import deal_bp
 from routes.task_routes import task_bp
+from routes.knowledge_base_routes import knowledge_bp
 from routes.auth_routes import SUPER_ADMIN_PERMISSIONS
 from tenant_service import create_tenant_database, clone_database_structure, register_tenant, seed_tenant_data
 
@@ -95,6 +96,7 @@ app.register_blueprint(deal_bp)
 app.register_blueprint(audit_log_bp) # Register the audit logs blueprint
 app.register_blueprint(contact_bp, url_prefix='/api/contacts')
 app.register_blueprint(task_bp, url_prefix='/api')
+app.register_blueprint(knowledge_bp, url_prefix='/api/knowledge-base')
 
 
 @app.route('/test')
@@ -770,4 +772,4 @@ if __name__ == "__main__":
     print(app.url_map)
     print("-------------------------\n")
     print("🚀 Starting CRM Backend on 0.0.0.0:5000...")
-    app.run(host='0.0.0.0', debug=True, port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=True)

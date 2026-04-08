@@ -51,14 +51,21 @@ def create_user_rbac(current_user):
     new_role = data.get("role")
     permissions = data.get("permissions", {})
 
+    # ✅ STEP 4: Debug (Don't be lazy)
+    print(f"--- DEBUG: Create User Attempt ---")
+    print(f"CURRENT USER: {current_user.email}")
+    print(f"CURRENT ROLE: {current_user.role}")
+    print(f"TARGET ROLE: {new_role}")
+
     if not all([name, email, password]):
         return jsonify({"error": "Name, Email and Password are required"}), 400
 
     # 🔹 ROLE HIERARCHY CHECK
     allowed_roles = ROLE_HIERARCHY.get(current_user.role, [])
-    if new_role not in allowed_roles:
+    if current_user.role != "Super Admin" and new_role not in allowed_roles:
         return jsonify({
-            "error": f"You ({current_user.role}) are not allowed to create a user with the role '{new_role}'"
+            "error": "Forbidden",
+            "message": f"Hierarchy Violation: {current_user.role} cannot create {new_role}"
         }), 403
 
     if User.query.filter_by(email=email).first():
