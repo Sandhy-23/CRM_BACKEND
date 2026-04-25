@@ -10,10 +10,10 @@ def get_engine(db_name):
     """
     if db_name not in engine_cache:
         # ✅ FIXED CREDENTIALS (NO GUESSING)
-        db_user = "root"
-        db_password = "1234"
-        db_host = "localhost"
-        db_port = "3306"
+        db_user = os.getenv("DB_USER", "root")
+        db_password = os.getenv("DB_PASSWORD", "1234")
+        db_host = os.getenv("DB_HOST", "localhost")
+        db_port = os.getenv("DB_PORT", "3306")
         
         # Construct connection string
         db_url = f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"

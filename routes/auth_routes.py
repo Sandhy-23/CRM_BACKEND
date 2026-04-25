@@ -244,6 +244,8 @@ def signup():
     email = data.get('email', '').strip().lower()
     password = data.get('password', '').strip()
 
+    print("SIGNUP EMAIL:", email)
+
     if not email or not password:
         return jsonify({"error": "Email and Password are required"}), 400
 
@@ -258,6 +260,9 @@ def signup():
     existing_user = User.query.filter_by(email=email).first()
     if existing_user:
         return jsonify({"error": "Email already registered. Please use the Login endpoint."}), 409
+
+    # 🔥 Note: User is NOT directly inserted into the 'users' table here.
+    # An OTP record is created, and the user is created only AFTER successful OTP verification.
 
     # --- OTP SIGNUP FLOW ---
     otp = generate_otp()
@@ -277,6 +282,7 @@ def signup():
     try:
         db.session.add(verification_entry)
         db.session.commit()
+        print("OTP INITIATED FOR:", email)
     except Exception as e:
         db.session.rollback()
         print(f"[FAIL] DB ERROR in signup: {str(e)}")
@@ -348,8 +354,13 @@ def verify_otp():
             password_hash=record.password_hash
         )
         db.session.delete(record) # Remove OTP record
+        
+        # 🔥 THIS IS CRITICAL: Commit the new user and delete the OTP record
+        # This is where the user is actually saved to the database.
+        # Equivalent to `conn.commit()` in raw SQL example.
         db.session.commit()
-
+        print("USER INSERTED SUCCESSFULLY")
+        print("USER SAVED SUCCESSFULLY")
         print(f"[OK] User created successfully: {email} (Role: {new_user.role})")
         return jsonify({"message": "Signup successful"}), 200
 
@@ -423,33 +434,35 @@ def login():
     if not email or not password:
         return jsonify({"error": "Missing credentials", "message": "Both email and password are required"}), 400
 
+    print("LOGIN INPUT:", email)
+
     # ✅ Step 2: Query correctly (case-insensitive)
     user = User.query.filter(func.lower(User.email) == email).first()
 
-    # --- DEBUG START (Requested for troubleshooting) ---
-    print(f"--- LOGIN DEBUG ---")
-    print(f"LOGIN EMAIL: {email}")
-    print(f"DB EMAIL: {user.email if user else 'User Not Found'}")
-    print(f"HASH IN DB: {user.password if user else 'N/A'}")
-    # --- DEBUG END ---
-
     # 1. Verify credentials
     if not user:
-        print(f"[FAIL] Login Failed: User '{email}' not found in DB.")
-        return jsonify({"error": "Invalid email or password"}), 401
+        print("DB EMAIL: NO USER")
+        return jsonify({"error": "User not found"}), 404
+
+    print("DB EMAIL:", user.email)
+    print("HASH IN DB:", user.password)
 
     # ✅ Step 4: Check password properly
     is_valid = False
     if user.password:
+        # Verify password logic (using flask_bcrypt wrapper for checkpw)
         try:
             is_valid = bcrypt.check_password_hash(user.password, password)
         except ValueError:
             print(f"[FAIL] Login Failed: Password in DB for '{email}' is not a valid bcrypt hash.")
             is_valid = False
 
+    # ✅ Step 4: Temporary debug (to be 100% sure)
+    print("PASSWORD MATCH:", is_valid)
+
     if not is_valid:
         print("❌ Invalid password")
-        return jsonify({"error": "Invalid email or password"}), 401
+        return jsonify({"error": "Invalid password"}), 403
 
     # 1.1 Check if user is verified from signup
     if not user.is_verified:
@@ -637,6 +650,27 @@ def forgot_password():
     else:
         # In a real app, you might not want to expose this failure.
         return jsonify({"error": "Failed to send password reset email."}), 500
+
+@auth_bp.route('/verify-reset-otp', methods=['POST'])
+@cross_origin()
+def verify_reset_otp():
+    data = request.get_json()
+    email = data.get('email', '').strip().lower()
+    otp = str(data.get('otp', '')).strip()
+
+    if not email or not otp:
+        return jsonify({"error": "Email and OTP are required"}), 400
+
+    # Find OTP record in the PasswordResetToken table
+    record = PasswordResetToken.query.filter_by(email=email, otp=otp).first()
+
+    if not record:
+        return jsonify({"error": "Invalid OTP"}), 400
+
+    if datetime.datetime.utcnow() > record.expires_at:
+        return jsonify({"error": "OTP expired"}), 400
+
+    return jsonify({"message": "OTP verified"}), 200
 
 @auth_bp.route('/reset-password', methods=['POST'])
 def reset_password():

@@ -1,175 +1,197 @@
 from flask import Blueprint, request, jsonify
 from extensions import db
 from routes.auth_routes import token_required
-from models.user import User
 from models.calendar_event import CalendarEvent
 from models.reminder import Reminder
-from datetime import datetime, timedelta
-from sqlalchemy import or_
 from models.task import Task
 from models.activity_logger import log_activity
+from datetime import datetime, timedelta
 
 calendar_bp = Blueprint('calendar', __name__)
 
+# 🔥 ROLE-BASED ACCESS (NO company_id)
 def get_event_query(current_user):
-    """Enforce Role Based Access Control for Calendar Events."""
     query = CalendarEvent.query
 
-    if current_user.role == 'SUPER_ADMIN':
+    if current_user.role == 'Super Admin':
         return query
-    
-    query = query.filter_by(company_id=current_user.organization_id)
 
-    if current_user.role == 'ADMIN':
+    if current_user.role == 'Admin':
         return query
-    
-    return query.filter(
-        or_(
-            CalendarEvent.created_by == current_user.id,
-            CalendarEvent.assigned_to == current_user.id
-        )
-    )
 
-@calendar_bp.route('/calendar/events', methods=['POST', 'OPTIONS'])
+    return query.filter(CalendarEvent.created_by == current_user.id)
+
+
+# ✅ CREATE EVENT
+@calendar_bp.route('/calendar/events', methods=['POST'])
 @token_required
 def create_event(current_user):
-    # ✅ STEP 2: Confirm correct DB connection
-    print("--- DEBUG: Calendar DB Connection ---")
-    print("DB URL:", db.engine.url)
-
-    data = request.get_json()
-    print("REQUEST DATA:", data) # ✅ STEP 1: Print request
-
-    # ✅ STEP 2: Strict validation
-    required_fields = ["title", "start_datetime", "end_datetime", "assigned_to"]
-    for field in required_fields:
-        if not data.get(field):
-            return jsonify({"error": f"{field} is required"}), 400
-
-    title = data.get('title')
-    start_datetime_str = data.get('start_datetime')
-
     try:
-        start_datetime = datetime.fromisoformat(start_datetime_str.replace('Z', '+00:00'))
-        end_datetime = datetime.fromisoformat(data['end_datetime'].replace('Z', '+00:00'))
-    except ValueError:
-        return jsonify({'error': 'Invalid datetime format. Use ISO 8601 format.'}), 400
+        data = request.get_json()
 
-    # ✅ STEP 3: Validate assigned_to again
-    assigned_to_id = data.get("assigned_to")
-    assigned_user = User.query.get(assigned_to_id)
-    if not assigned_user:
-        return jsonify({"error": "Invalid assigned_to"}), 400
+        # 🔥 Validation
+        required_fields = ["title", "start_datetime", "end_datetime"]
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({"error": f"{field} is required"}), 400
 
-    new_event = CalendarEvent(
-        title=title,
-        description=data.get('description'),
-        event_type=data.get('event_type'),
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
-        related_type=data.get('related_type'),
-        related_id=data.get('related_id'),
-        created_by=current_user.id,
-        assigned_to=assigned_to_id,
-        company_id=current_user.organization_id
-    )
-
-    try:
-        db.session.add(new_event)
-        db.session.flush() # Flush to get new_event.id for the reminder
-
-        # --- Auto-create Task from Calendar Event (as per user request) ---
+        # 🔥 Datetime parsing
         try:
-            task_date = start_datetime.date()
-            task_time = start_datetime.time().strftime('%H:%M:%S')
+            start_datetime = datetime.fromisoformat(
+                data['start_datetime'].replace('Z', '+00:00')
+            )
+            end_datetime = datetime.fromisoformat(
+                data['end_datetime'].replace('Z', '+00:00')
+            )
+        except:
+            return jsonify({"error": "Invalid datetime format"}), 400
 
+        # 🔥 Create Event (NO company_id)
+        new_event = CalendarEvent(
+            title=data['title'],
+            description=data.get('description'),
+            event_type=data.get('event_type'),
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+            related_type=data.get('related_type'),
+            related_id=data.get('related_id'),
+            created_by=current_user.id
+        )
+
+        db.session.add(new_event)
+        db.session.flush()
+
+        # 🔥 Auto-create Task
+        try:
             new_task = Task(
                 title=new_event.title,
                 description=new_event.description or f"Event: {new_event.title}",
                 created_by=current_user.id,
-                due_date=task_date
+                due_date=start_datetime.date()
             )
             db.session.add(new_task)
-            print(f"[INFO] Auto-creating task for Event ID {new_event.id}")
         except Exception as e:
-            print(f"[FAIL] Error auto-creating task from event: {e}")
+            print("Task creation failed:", e)
 
-        remind_before_minutes = data.get('remind_before_minutes')
-        if remind_before_minutes:
+        # 🔥 Reminder
+        remind_before = data.get("remind_before_minutes")
+        if remind_before:
             try:
-                remind_at = start_datetime - timedelta(minutes=int(remind_before_minutes))
-                new_reminder = Reminder(
+                remind_at = start_datetime - timedelta(minutes=int(remind_before))
+
+                reminder = Reminder(
                     event_id=new_event.id,
                     remind_at=remind_at,
-                    user_id=new_event.assigned_to,
-                    company_id=current_user.organization_id
+                    user_id=current_user.id
                 )
-                db.session.add(new_reminder)
-            except (ValueError, TypeError) as e:
-                # Don't let a bad reminder value stop the event creation, but log it.
-                print(f"⚠️ Could not create reminder for event. Invalid 'remind_before_minutes' value. Error: {e}")
+                db.session.add(reminder)
+            except Exception as e:
+                print("Reminder error:", e)
 
         db.session.commit()
-        print("✅ DATA COMMITTED: Calendar event and/or reminder created.")
+
         log_activity(
             module="calendar",
             action="created",
-            description=f"Event created: '{new_event.title}'",
+            description=f"Event created: {new_event.title}",
             related_id=new_event.id
         )
-        return jsonify({'message': 'Event created successfully', 'event': new_event.to_dict()}), 201
+
+        return jsonify({
+            "message": "Event created",
+            "event": {
+                "id": new_event.id,
+                "title": new_event.title,
+                "start_datetime": new_event.start_datetime.isoformat(),
+                "end_datetime": new_event.end_datetime.isoformat()
+            }
+        }), 201
+
     except Exception as e:
         db.session.rollback()
-        print(f"❌ DB ERROR in create_event: {str(e)}")
-        return jsonify({'error': 'Database error while creating event', 'message': str(e)}), 500
+        print("CREATE EVENT ERROR:", e)
+        return jsonify({"error": str(e)}), 500
 
-@calendar_bp.route('/calendar/events', methods=['GET', 'OPTIONS'])
+
+# ✅ GET EVENTS
+@calendar_bp.route('/calendar/events', methods=['GET'])
 @token_required
 def get_events(current_user):
-    base_query = get_event_query(current_user)
-    events = base_query.order_by(CalendarEvent.start_datetime.asc()).all()
-    
-    return jsonify([e.to_dict() for e in events]), 200
+    try:
+        events = get_event_query(current_user) \
+            .order_by(CalendarEvent.start_datetime.asc()) \
+            .all()
 
-@calendar_bp.route('/reminders/today', methods=['GET', 'OPTIONS'])
+        result = []
+        for e in events:
+            result.append({
+                "id": e.id,
+                "title": e.title,
+                "description": e.description,
+                "start_datetime": e.start_datetime.isoformat() if e.start_datetime else None,
+                "end_datetime": e.end_datetime.isoformat() if e.end_datetime else None,
+                "event_type": e.event_type
+            })
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        print("GET EVENTS ERROR:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ✅ GET TODAY REMINDERS
+@calendar_bp.route('/reminders/today', methods=['GET'])
 @token_required
 def get_today_reminders(current_user):
-    now = datetime.utcnow()
-    
-    query = Reminder.query.filter(
-        Reminder.is_sent == False,
-        Reminder.remind_at <= now,
-        Reminder.user_id == current_user.id,
-        Reminder.company_id == current_user.organization_id
-    )
+    try:
+        now = datetime.utcnow()
 
-    reminders = query.order_by(Reminder.remind_at.asc()).all()
-    return jsonify([r.to_dict() for r in reminders]), 200
+        reminders = Reminder.query.filter(
+            Reminder.is_sent == False,
+            Reminder.remind_at <= now,
+            Reminder.user_id == current_user.id
+        ).order_by(Reminder.remind_at.asc()).all()
 
-@calendar_bp.route('/reminders/<int:reminder_id>/sent', methods=['PUT', 'OPTIONS'])
+        return jsonify([{
+            "id": r.id,
+            "event_id": r.event_id,
+            "remind_at": r.remind_at.isoformat() if r.remind_at else None,
+            "user_id": r.user_id,
+            "is_sent": r.is_sent
+        } for r in reminders]), 200
+
+    except Exception as e:
+        print("REMINDER FETCH ERROR:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ✅ MARK REMINDER SENT
+@calendar_bp.route('/reminders/<int:reminder_id>/sent', methods=['PUT'])
 @token_required
 def mark_reminder_sent(current_user, reminder_id):
-    # Find the reminder by its ID, but scoped to the user's company for security.
-    # This allows Admins to mark reminders for others in the same organization.
-    reminder = Reminder.query.filter_by(
-        id=reminder_id, company_id=current_user.organization_id
-    ).first()
-
-    if not reminder:
-        return jsonify({'error': 'Reminder not found or permission denied'}), 404
-
     try:
+        reminder = Reminder.query.filter_by(
+            id=reminder_id,
+            user_id=current_user.id
+        ).first()
+
+        if not reminder:
+            return jsonify({"error": "Reminder not found"}), 404
+
         reminder.is_sent = True
         db.session.commit()
-        print("✅ DATA COMMITTED: Reminder marked as sent.")
+
         log_activity(
             module="reminder",
             action="completed",
-            description=f"Reminder marked as sent for event ID: {reminder.event_id}",
+            description=f"Reminder sent for event {reminder.event_id}",
             related_id=reminder.id
         )
-        return jsonify({'message': 'Reminder marked as sent'}), 200
+
+        return jsonify({"message": "Reminder marked as sent"}), 200
+
     except Exception as e:
         db.session.rollback()
-        print(f"❌ DB ERROR in mark_reminder_sent: {str(e)}")
-        return jsonify({'error': 'Database error while updating reminder', 'message': str(e)}), 500
+        print("REMINDER UPDATE ERROR:", e)
+        return jsonify({"error": str(e)}), 500

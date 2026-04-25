@@ -9,3 +9,6 @@ python-dotenv
 pandas
 requests
 alembic
+gunicorn
+PyMySQL
+Flask-Bcrypt

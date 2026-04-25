@@ -13,7 +13,7 @@ from flask_jwt_extended import JWTManager, create_access_token, jwt_required, ge
 from datetime import datetime, timedelta
 from db import get_engine
 from config import Config
-from extensions import db, bcrypt
+from extensions import db, bcrypt, mail, jwt
 from models.crm import Lead, Deal
 from models.team import Team
 from models.user import User
@@ -39,43 +39,34 @@ from routes.contact_routes import contact_bp
 from routes.deal_routes import deal_bp
 from routes.task_routes import task_bp
 from routes.knowledge_base_routes import knowledge_bp
-from routes.auth_routes import SUPER_ADMIN_PERMISSIONS
+from routes.auth_routes import auth_bp, social_bp, SUPER_ADMIN_PERMISSIONS
 from tenant_service import create_tenant_database, clone_database_structure, register_tenant, seed_tenant_data
+from routes.web_conversion_routes import web_conversion_bp
 
 app = Flask(__name__)
 app.url_map.strict_slashes = False # 🔥 Global Fix: Non-strict slashes for all routes
 
-# ✅ FIX 1: Proper CORS config for your specific Frontend IP
-CORS(
-    app,
-    resources={r"/*": {"origins": "*"}},
-    supports_credentials=True
-)
+CORS(app, supports_credentials=True, resources={
+    r"/*": {
+        "origins": [os.getenv("FRONTEND_URL", "http://localhost:5173")]
+    }
+})
 app.config['CORS_HEADERS'] = 'Content-Type'
 
-# 🔥 DEBUG: Verify .env is loaded (Watch your terminal!)
-print("FRONTEND URL FROM ENV:", os.getenv("FRONTEND_URL"))
+# ✅ Load configuration from Config class
+app.config.from_object(Config)
 
-# ✅ STEP 1 & 2: Set Secret Keys for Flask and JWT
-app.config['SECRET_KEY'] = 'your_super_secret_key'
-app.config['JWT_SECRET_KEY'] = 'your_super_secret_key'
-
-# ✅ STEP 5: UPDATE BACKEND (Force MySQL Connection)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:1234@localhost/crm_db'
+# ✅ Initialize extensions
 db.init_app(app)
-jwt = JWTManager(app)
+jwt.init_app(app)
+mail.init_app(app)
 
-# ✅ STEP 7: Verify backend is using MySQL
-print("DB:", app.config['SQLALCHEMY_DATABASE_URI'])
+# 🔥 DEBUG: Verify .env is loaded (Watch your terminal!)
+print(f"FRONTEND URL FROM ENV: {os.getenv('FRONTEND_URL')}")
+print(f"DB URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
 
 
 # Configure Flask-Mail
-app.config['MAIL_SERVER'] = 'smtp.gmail.com'
-app.config['MAIL_PORT'] = 587
-app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
-app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
-mail = Mail(app)
 
 # Register Blueprints
 app.register_blueprint(analytics_bp, url_prefix='/api/dashboard')
@@ -97,17 +88,28 @@ app.register_blueprint(audit_log_bp) # Register the audit logs blueprint
 app.register_blueprint(contact_bp, url_prefix='/api/contacts')
 app.register_blueprint(task_bp, url_prefix='/api')
 app.register_blueprint(knowledge_bp, url_prefix='/api/knowledge-base')
+app.register_blueprint(auth_bp, url_prefix='/auth')
+app.register_blueprint(social_bp, url_prefix='/auth/social')
+app.register_blueprint(web_conversion_bp) # Register the new web conversion blueprint
 
 
 @app.route('/test')
 def test():
     return "working"
 
+@app.route("/")
+def home():
+    return "Backend Running"
+
 @app.route("/test-db")
 def test_db():
     engine = get_engine("master_db")
     with engine.connect() as conn:
         return {"message": "DB Connected"}
+
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory('static', 'favicon.ico')
 
 # ✅ STEP 6: Force Fresh Response (Disable Caching)
 @app.after_request
@@ -117,59 +119,14 @@ def add_header(response):
     response.headers['Expires'] = '-1'
     return response
 
-@app.route("/signup", methods=["POST"])
-def signup():
-    data = request.json
-    name = data["name"]
-    email = data["email"]
-    password = data["password"]
-    
-    # ✅ STEP 2: Hash password correctly
-    hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-
-    engine = create_engine("mysql+pymysql://root:1234@localhost/master_db")
-
-    with engine.begin() as conn:
-        # ✅ Mandatory duplicate check (case-insensitive)
-        existing = conn.execute(
-            text("SELECT * FROM users WHERE LOWER(email)=LOWER(:email)"),
-            {"email": email.strip()}
-        ).fetchone()
-
-        if existing:
-            return jsonify({"error": "User already exists"}), 400
-
-        conn.execute(text("""
-            INSERT INTO users (name, email, password, role)
-            VALUES (:name, :email, :password, 'Super Admin')
-        """), {"name": name, "email": email, "password": hashed_password})
-
-    return jsonify({"message": "Signup successful"}), 201
-
-@app.route("/login", methods=["POST"])
-def simple_login():
-    data = request.get_json()
-    db_engine = get_engine("master_db")
-
-    with db_engine.connect() as conn:
-        user = conn.execute(text("""
-            SELECT * FROM users WHERE email=:email
-        """), {"email": data["email"]}).fetchone()
-
-    # ✅ STEP 5: Verify password with bcrypt.checkpw logic
-    if not user or not bcrypt.check_password_hash(user._mapping['password'], data["password"]):
-        print("❌ Invalid email or password")
-        return jsonify({"error": "Invalid email or password"}), 401
-
-    return jsonify({"message": "Login success", "role": user._mapping['role']})
-
 @app.route("/create-organization", methods=["POST"])
 def create_organization():
+    
     data = request.json
     company = data["company"]
     email = data["email"]
 
-    engine = create_engine("mysql+pymysql://root:1234@localhost/master_db")
+    engine = get_engine("master_db")
 
     with engine.begin() as conn:
         # 🔥 CHECK if already has org
@@ -233,37 +190,6 @@ def create_user_inside_org():
         conn.commit()
 
     return jsonify({"message": "User created"}), 201
-
-def get_tenant_db():
-    pass
-
-# --- CONVERSION ENDPOINTS (Missing APIs) ---
-
-@app.route('/api/conversion/stats', methods=['GET', 'OPTIONS'])
-def conversion_stats():
-    if request.method == 'OPTIONS':
-        return '', 200
-    # Dummy stats - replace with DB query when model exists
-    return jsonify({
-        "total_visits": 1500,
-        "total_leads": 120,
-        "conversion_rate": "8.0%"
-    })
-
-@app.route('/api/conversion/trends', methods=['GET', 'OPTIONS'])
-def conversion_trends():
-    if request.method == 'OPTIONS':
-        return '', 200
-    return jsonify([
-        {"date": "2023-10-01", "visits": 100, "leads": 5},
-        {"date": "2023-10-02", "visits": 120, "leads": 8}
-    ])
-
-@app.route('/api/conversion/submissions', methods=['GET', 'OPTIONS'])
-def conversion_submissions():
-    if request.method == 'OPTIONS':
-        return '', 200
-    return jsonify([])
 
 @app.route('/api/team', methods=['GET', 'POST'])
 def get_teams():
@@ -572,134 +498,6 @@ def leads_funnel():
 
     return jsonify(data)
 
-@app.route('/auth/signup', methods=['POST'])
-def auth_signup():
-    print("🚀 Endpoint /auth/signup hit!")
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "No input data provided"}), 400
-
-        name = data.get("name", "").strip()
-        email = data.get("email", "").strip().lower()
-        password = data.get("password", "").strip()
-
-        if not email or not password:
-            return jsonify({"error": "Email and password are required"}), 400
-
-        # ✅ Check for existing user before attempting insert
-        if User.query.filter(func.lower(User.email) == email.lower()).first():
-            return jsonify({"error": "User with this email already exists"}), 400
-
-        # Ensure an organization exists (create default if table is empty)
-        org = Organization.query.first()
-        if not org:
-            org = Organization(name=f"{name}'s Organization" if name else "Default Organization", subscription_plan="Free", db_name="crm_db")
-            db.session.add(org)
-            db.session.commit()
-
-        new_user = User(
-            name=name,
-            email=email,
-            password=bcrypt.generate_password_hash(password).decode('utf-8'),
-            role="Super Admin",
-            organization_id=org.id,
-            is_approved=True,
-            status="Active",
-            permissions=SUPER_ADMIN_PERMISSIONS,
-            must_change_password=True
-        )
-
-        db.session.add(new_user)
-        db.session.commit()
-
-        return jsonify({"message": "Signup successful", "user_id": new_user.id}), 201
-    except Exception as e:
-        print(f"❌ Signup Route Error: {str(e)}")
-        return jsonify({"error": "Internal server error"}), 500
-
-@app.route('/auth/login', methods=['POST', 'OPTIONS'])
-def login():
-    if request.method == 'OPTIONS':
-        return '', 200
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "No input data provided"}), 400
-
-        # ✅ Step 1: Normalize input (Lower case & strip spaces)
-        email = data.get("email", "").strip().lower()
-        password = data.get("password", "").strip()
-        
-        # ✅ Step 2: Validate Email Format
-        # Using a standard regex to allow any valid email (not just gmail, but catches typos like 'gamil' if domain checking was stricter, mostly format here)
-        email_pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
-        if not re.match(email_pattern, email):
-            return jsonify({"error": "Invalid email format"}), 400
-
-        # ✅ Step 3: Debug Input
-        print(f"----- DEBUG LOGIN -----")
-        print("EMAIL:", repr(email))
-
-        if "@gamil.com" in email:
-            print("⚠️  TYPO DETECTED: You typed '@gamil.com'. Did you mean '@gmail.com'?")
-
-        # ✅ Step 2: Query correctly (case-insensitive)
-        user = User.query.filter(func.lower(User.email) == email).first()
-        print("USER FOUND:", user)
-
-        if not user:
-            print("❌ User not found")
-            return jsonify({"error": "User not found"}), 404
-
-        # ✅ Step 4: Check password properly using bcrypt
-        is_valid = False
-        if user.password:
-            is_valid = bcrypt.check_password_hash(user.password, password)
-
-        if not is_valid:
-            print("❌ Invalid password")
-            return jsonify({"error": "Invalid password"}), 401
-
-        # Fetch database name for routing
-        # ✅ Fetch mapping using raw SQL as requested
-        org_stmt = text("SELECT db_name FROM organizations WHERE id = :id")
-        org_mapping = db.session.execute(org_stmt, {"id": user.organization_id}).fetchone()
-        
-        db_name = org_mapping[0] if org_mapping and org_mapping[0] else "crm_db"
-
-        # 🔹 LOAD PERMISSIONS FROM DB
-        permissions = user.permissions if user.permissions else {}
-
-        # Create JWT Token with Claims
-        additional_claims = {
-            "email": user.email,
-            "role": user.role,
-            "organization_id": user.organization_id,
-            "db_name": db_name,
-            "permissions": permissions # 🔥 Included in JWT for middleware
-        }
-
-        token = create_access_token(
-            identity=str(user.id),
-            additional_claims=additional_claims,
-            expires_delta=timedelta(hours=24)
-        )
-
-        return jsonify({
-            "message": "Login successful",
-            "token": token,
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "role": user.role,
-                "organization_id": user.organization_id
-            }
-        })
-    except Exception as e:
-        print(f"❌ Login Route Error: {str(e)}")
-        return jsonify({"error": "Internal server error"}), 500
-
 @app.route('/auth/forgot-password', methods=['POST'])
 def forgot_password():
     try:
@@ -742,34 +540,37 @@ def apply_lead_scoring(lead):
     if not lead.email or '@' not in lead.email:
         return
 
-if __name__ == "__main__":
+def setup_database():
+    """Runs critical database initialization and connectivity tests."""
     with app.app_context():
-        # ✅ STEP 7: TEST CONNECTION (MANDATORY)
         try:
             master_engine = get_engine("master_db")
             with master_engine.connect() as conn:
-                print("✅ MYSQL CONNECTED TO MASTER")
                 # 🚨 CRITICAL DB FIX: Ensure master users email is unique
                 try:
                     conn.execute(text("ALTER TABLE users ADD UNIQUE (email)"))
                     conn.commit()
                 except Exception:
                     pass
-            print("✅ MYSQL CONNECTED")
+            print("✅ DATABASE INITIALIZED: Connected to Master DB")
         except Exception as e:
-            print("❌ ERROR:", e)
-        
-        # ✅ STEP 8: Verify data
-        try:
-            leads = Lead.query.all()
-            print("LEADS:", leads)
-        except Exception as e:
-            print(f"❌ DB Error: {e}")
-            print("👉 Check if MySQL is running and credentials in config.py are correct.")
+            print(f"❌ DATABASE ERROR: {e}")
+
+# ✅ Run setup logic (This will now run on Render/Gunicorn)
+setup_database()
+
+if __name__ == "__main__":
+    # This block only runs during local development (python app.py)
+    try:
+        print("LEADS IN DB:", Lead.query.count())
+    except Exception as e:
+        print(f"❌ Local Data Check Failed: {e}")
 
     # ✅ STEP 5: Verify route is registered
     print("\n--- Registered Routes ---")
     print(app.url_map)
+    for rule in app.url_map.iter_rules():
+        print(f"{rule.endpoint:30} {rule.methods} {rule.rule}")
     print("-------------------------\n")
     print("🚀 Starting CRM Backend on 0.0.0.0:5000...")
     app.run(host="0.0.0.0", port=5000, debug=True)

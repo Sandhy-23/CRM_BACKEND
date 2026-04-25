@@ -8,7 +8,7 @@ class Config:
     # ✅ STEP 2: Change DB connection (MySQL)
     # 👉 Replace 'root' and 'password' with your actual MySQL credentials
     # 👉 Replace 'crm_db' with your actual database name if different
-    SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://root:1234@localhost/crm_db'
+    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'mysql+pymysql://root:1234@localhost/crm_db')
     
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SECRET_KEY = os.environ.get("SECRET_KEY") or "a-dev-secret-key-that-is-not-so-secret"

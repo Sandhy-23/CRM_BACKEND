@@ -22,42 +22,42 @@ def inspect_database():
         cursor = conn.cursor()
 
         # --- Inspect Calendar Events ---
-        print("\n--- Table: calendar_events ---")
+        print("\n--- Table: calendar_event ---")
         try:
-            cursor.execute("PRAGMA table_info(calendar_events)")
+            cursor.execute("PRAGMA table_info(calendar_event)")
             columns = cursor.fetchall()
             col_names = [col[1] for col in columns]
             print(f"Columns: {col_names}")
 
-            cursor.execute("SELECT id, title, created_by, assigned_to, company_id FROM calendar_events")
+            cursor.execute("SELECT id, title, created_by FROM calendar_event")
             rows = cursor.fetchall()
             if not rows:
-                print("No data found in calendar_events table.")
+                print("No data found in calendar_event table.")
             else:
-                print("Data (id, title, created_by, assigned_to, company_id):")
+                print("Data (id, title, created_by):")
                 for row in rows:
                     print(row)
         except sqlite3.OperationalError:
-            print("Table 'calendar_events' not found.")
+            print("Table 'calendar_event' not found.")
 
         # --- Inspect Reminders ---
-        print("\n--- Table: reminders ---")
+        print("\n--- Table: reminder ---")
         try:
-            cursor.execute("PRAGMA table_info(reminders)")
+            cursor.execute("PRAGMA table_info(reminder)")
             columns = cursor.fetchall()
             col_names = [col[1] for col in columns]
             print(f"Columns: {col_names}")
             
-            cursor.execute("SELECT id, event_id, remind_at, is_sent, user_id, company_id FROM reminders")
+            cursor.execute("SELECT id, event_id, remind_at, is_sent, user_id FROM reminder")
             rows = cursor.fetchall()
             if not rows:
-                print("No data found in reminders table.")
+                print("No data found in reminder table.")
             else:
-                print("Data (id, event_id, remind_at, is_sent, user_id, company_id):")
+                print("Data (id, event_id, remind_at, is_sent, user_id):")
                 for row in rows:
                     print(row)
         except sqlite3.OperationalError:
-            print("Table 'reminders' not found.")
+            print("Table 'reminder' not found.")
             
         # --- Inspect Users ---
         print("\n--- Table: users ---")
